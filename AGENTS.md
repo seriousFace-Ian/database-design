@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -47,10 +47,8 @@ Three-layer design: **routes → services → pg driver**.
 
 - `src/routes/connection.ts` — `POST /api/connection/test`, `POST /api/connection/inspect`
 - `src/routes/schema.ts` — `POST /api/schema/execute`
-- `src/routes/project.ts` — `POST /api/project/init`, `POST /api/project/save`, `POST /api/project/load` (DB-embedded config persistence; `load` is POST, not GET, because credentials must travel in the body)
-- `src/services/pgClient.ts` — creates a short-lived `pg.Pool` per request; **server never persists credentials**. Provides `testConnection`, `executeInTransaction`, and `executeStatements`.
-- `src/services/configStore.ts` — stores the entire `ProjectFile` as a single JSONB row in a `__dbdesign` table inside the *target* database (single-row `CHECK (id = 1)`). `saveProjectConfig` is self-healing (runs `CREATE TABLE IF NOT EXISTS` before upsert); `loadProjectConfig` uses `to_regclass()` to return `null` when the table is absent. Idempotent migration in `migrations/001_create_dbdesign.sql`.
-- `src/services/schemaInspector.ts` — reverse-engineers an existing PostgreSQL database using `information_schema` and `pg_catalog` queries; returns tables, columns, foreign keys, indexes, and ENUMs. **Should skip the `__dbdesign` config table when importing.**
+- `src/services/pgClient.ts` — creates a short-lived `pg.Pool` per request; **credentials are never persisted**. Provides `testConnection`, `executeInTransaction`, and `executeStatements`.
+- `src/services/schemaInspector.ts` — reverse-engineers an existing PostgreSQL database using `information_schema` and `pg_catalog` queries; returns tables, columns, foreign keys, indexes, and ENUMs.
 
 `/api/schema/execute` accepts a `transactional` boolean: `true` wraps all statements in a single transaction (roll back on any failure), `false` executes each statement independently and continues on error.
 
@@ -59,7 +57,7 @@ Three-layer design: **routes → services → pg driver**.
 **State management** (Zustand stores):
 - `projectStore` — single source of truth for tables, fields, and ENUMs; wrapped with `zundo` for undo/redo
 - `uiStore` — selected table, active view (editor vs diagram), modal visibility
-- `connectionStore` — database connection config; persisted to **`sessionStorage`** (Zustand `persist` middleware) so the connection survives an F5 refresh but is cleared when the tab closes. Only the `connected` status is persisted (`testing`/`error` reset to `idle` on reload). **Note: this stores the connection config — including the plaintext password — in `sessionStorage`** for the tab's lifetime; it must persist the password so post-refresh save/load calls still authenticate. The Toolbar's disconnect button calls `disconnect()` and reloads the page.
+- `connectionStore` — database connection config (in-memory only)
 
 **Data flow:** All components read from and write to Zustand stores. Stores do not call the API directly — that is done via hooks (`useProject`, `useTableEditor`, etc.) or `api/` modules.
 
@@ -92,6 +90,6 @@ Defined in `packages/frontend/src/types/schema.ts`. The root type is `ProjectFil
 ## Key Design Decisions
 
 - **No ORM** — raw `pg` driver for precise DDL control
-- **Stateless backend** — the *server* holds no session state; credentials arrive in each request body and are never persisted server-side. (The client persists them in `sessionStorage` — see `connectionStore` above.)
-- **Two persistence channels for the project** — (1) Browser File API → local `.dbdesign.json` (offline, git-friendly); (2) DB-embedded → a `__dbdesign` JSONB row inside the target database (`configStore` / `/api/project/*`), so the design travels with the database. Both coexist independently.
+- **Stateless backend** — connection credentials live only in the request body; the server holds no session state
+- **Browser File API** for project persistence — no server-side storage needed
 - **Field-level React Flow Handles** — each `FieldDefinition` row registers its own `sourceHandle`/`targetHandle` (keyed by `fieldId`) so FK edges appear at the correct row in the diagram

@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import connectionRouter from './routes/connection';
 import schemaRouter from './routes/schema';
+import projectRouter from './routes/project';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 dotenv.config();
@@ -26,6 +27,7 @@ app.get('/api/health', (_req, res) => {
 // Routes
 app.use('/api/connection', connectionRouter);
 app.use('/api/schema', schemaRouter);
+app.use('/api/project', projectRouter);
 
 // Error handling
 app.use(notFoundHandler);

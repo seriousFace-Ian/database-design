@@ -1,3 +1,5 @@
+import type { ProjectFile } from './schema';
+
 export interface DbConnectionConfig {
   host: string;
   port: number;
@@ -5,6 +7,18 @@ export interface DbConnectionConfig {
   username: string;
   password: string;
   ssl?: boolean;
+}
+
+export interface SaveProjectConfigResponse {
+  success: boolean;
+  updatedAt?: string;
+}
+
+export interface LoadProjectConfigResponse {
+  success: boolean;
+  found: boolean;
+  project?: ProjectFile; // config 列内容，结构等同 ProjectFile
+  updatedAt?: string;
 }
 
 export interface ConnectionTestResponse {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Button,
   Space,
@@ -6,6 +6,7 @@ import {
   Tag,
   Tooltip,
   Typography,
+  App,
 } from 'antd';
 import {
   SaveOutlined,
@@ -17,16 +18,23 @@ import {
   PlusOutlined,
   UndoOutlined,
   RedoOutlined,
+  CloudUploadOutlined,
+  CloudDownloadOutlined,
+  DisconnectOutlined,
 } from '@ant-design/icons';
 import { useProjectStore } from '@/store/projectStore';
 import { useUiStore } from '@/store/uiStore';
+import { useConnectionStore } from '@/store/connectionStore';
 import { useSaveProject, useLoadProject } from '@/hooks/useFileSystem';
+import { saveProjectToDb, loadProjectFromDb } from '@/api/project';
 
 const { Text } = Typography;
 
 const Toolbar: React.FC = () => {
-  const { project, isDirty } = useProjectStore();
+  const { message, modal } = App.useApp();
+  const { project, isDirty, loadProject: loadProjectIntoStore, markSaved } = useProjectStore();
   const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen } = useUiStore();
+  const { config: dbConfig, status: dbStatus, disconnect } = useConnectionStore();
   // zundo temporal 暂时直接用 store 内置
   const temporalStore = useProjectStore.temporal;
   const canUndo = temporalStore.getState().pastStates.length > 0;
@@ -36,8 +44,57 @@ const Toolbar: React.FC = () => {
   const loadProject = useLoadProject();
   const { newProject } = useProjectStore();
 
+  const [dbSaving, setDbSaving] = useState(false);
+  const [dbLoading, setDbLoading] = useState(false);
+  const dbConnected = dbStatus === 'connected';
+
   const handleNew = () => {
     newProject('新建项目');
+  };
+
+  const handleSaveToDb = async () => {
+    if (!project) return;
+    setDbSaving(true);
+    try {
+      const res = await saveProjectToDb(dbConfig, project);
+      if (res.success) {
+        markSaved();
+        message.success(`已保存到数据库 ${dbConfig.database}`);
+      }
+    } finally {
+      setDbSaving(false);
+    }
+  };
+
+  const handleLoadFromDb = async () => {
+    setDbLoading(true);
+    try {
+      const res = await loadProjectFromDb(dbConfig);
+      if (res.found && res.project) {
+        loadProjectIntoStore(res.project);
+        message.success('已从数据库加载设计');
+      } else {
+        message.info(`数据库 ${dbConfig.database} 中暂无设计配置`);
+      }
+    } finally {
+      setDbLoading(false);
+    }
+  };
+
+  const handleDisconnect = () => {
+    modal.confirm({
+      title: '断开连接并刷新？',
+      content: isDirty
+        ? '当前设计有未保存改动，刷新后将丢失。建议先「存库」或「保存」。确定继续？'
+        : '将断开数据库连接并刷新页面，清空当前内存状态。',
+      okText: '断开并刷新',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => {
+        disconnect();
+        window.location.reload();
+      },
+    });
   };
 
   return (
@@ -124,6 +181,45 @@ const Toolbar: React.FC = () => {
         >
           连接
         </Button>
+        {dbConnected && (
+          <Tooltip title={`已连接：${dbConfig.username}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`}>
+            <Tag color="success" style={{ marginRight: 0 }}>
+              {dbConfig.database || '已连接'}
+            </Tag>
+          </Tooltip>
+        )}
+        <Tooltip title={dbConnected ? '将当前设计保存到所连数据库' : '请先在「连接」中测试通过'}>
+          <Button
+            icon={<CloudUploadOutlined />}
+            size="small"
+            loading={dbSaving}
+            onClick={handleSaveToDb}
+            disabled={!dbConnected || !project}
+          >
+            存库
+          </Button>
+        </Tooltip>
+        <Tooltip title={dbConnected ? '从所连数据库读取已保存的设计' : '请先在「连接」中测试通过'}>
+          <Button
+            icon={<CloudDownloadOutlined />}
+            size="small"
+            loading={dbLoading}
+            onClick={handleLoadFromDb}
+            disabled={!dbConnected}
+          >
+            读库
+          </Button>
+        </Tooltip>
+        {dbConnected && (
+          <Tooltip title="断开连接并刷新全局">
+            <Button
+              icon={<DisconnectOutlined />}
+              size="small"
+              danger
+              onClick={handleDisconnect}
+            />
+          </Tooltip>
+        )}
       </Space>
     </div>
   );

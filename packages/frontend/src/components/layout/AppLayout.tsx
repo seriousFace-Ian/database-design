@@ -7,6 +7,7 @@ import DesignerPage from '@/pages/DesignerPage';
 import DiagramPage from '@/pages/DiagramPage';
 import SqlPreviewModal from '@/components/sql/SqlPreviewModal';
 import ConnectionPanel from '@/components/connection/ConnectionPanel';
+import EnumEditor from '@/components/editor/EnumEditor';
 
 const { Sider, Content } = Layout;
 
@@ -39,6 +40,7 @@ const AppLayout: React.FC = () => {
       {/* 全局弹窗 */}
       <SqlPreviewModal />
       <ConnectionPanel />
+      <EnumEditor />
     </Layout>
   );
 };

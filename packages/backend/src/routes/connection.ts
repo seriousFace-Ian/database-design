@@ -30,7 +30,8 @@ router.post('/inspect', async (req: Request, res: Response, next: NextFunction) 
 });
 
 function validateConnectionConfig(config: DbConnectionConfig): void {
-  const required: (keyof DbConnectionConfig)[] = ['host', 'port', 'database', 'username', 'password'];
+  // password 不强制：本地 trust/peer 认证下密码为空属正常
+  const required: (keyof DbConnectionConfig)[] = ['host', 'port', 'database', 'username'];
   for (const field of required) {
     if (!config[field] && config[field] !== 0) {
       const err = new Error(`Missing required field: ${field}`);
