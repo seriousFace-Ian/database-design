@@ -1,0 +1,370 @@
+import { create } from 'zustand';
+import { temporal } from 'zundo';
+import { v4 as uuidv4 } from 'uuid';
+import type {
+  ProjectFile,
+  TableDefinition,
+  FieldDefinition,
+  EnumType,
+  IndexDefinition,
+} from '@/types/schema';
+
+const DEFAULT_FIELD: Omit<FieldDefinition, 'id' | 'order'> = {
+  name: '',
+  type: 'VARCHAR',
+  length: 255,
+  nullable: true,
+  isPrimaryKey: false,
+  isUnique: false,
+};
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function createEmptyProject(name: string): ProjectFile {
+  return {
+    $schema: 'https://dbdesign/schema/v1.json',
+    version: '1.0',
+    name,
+    createdAt: now(),
+    updatedAt: now(),
+    enums: [],
+    tables: [],
+  };
+}
+
+interface ProjectState {
+  project: ProjectFile | null;
+  isDirty: boolean;
+
+  // 项目操作
+  newProject: (name: string) => void;
+  loadProject: (file: ProjectFile) => void;
+  updateProjectMeta: (changes: Partial<Pick<ProjectFile, 'name' | 'description'>>) => void;
+
+  // 表操作
+  addTable: (name?: string) => string;
+  updateTable: (tableId: string, changes: Partial<Omit<TableDefinition, 'id' | 'fields' | 'indexes'>>) => void;
+  deleteTable: (tableId: string) => void;
+
+  // 字段操作
+  addField: (tableId: string) => string;
+  updateField: (tableId: string, fieldId: string, changes: Partial<FieldDefinition>) => void;
+  deleteField: (tableId: string, fieldId: string) => void;
+  reorderFields: (tableId: string, fromIndex: number, toIndex: number) => void;
+
+  // 索引操作
+  addIndex: (tableId: string, index: Omit<IndexDefinition, 'id'>) => void;
+  deleteIndex: (tableId: string, indexId: string) => void;
+
+  // ENUM 操作
+  addEnum: (enumDef: Omit<EnumType, 'id'>) => string;
+  updateEnum: (enumId: string, changes: Partial<Omit<EnumType, 'id'>>) => void;
+  deleteEnum: (enumId: string) => void;
+
+  // 图表布局
+  updateTablePosition: (tableId: string, position: { x: number; y: number }) => void;
+  updateDiagramLayout: (zoom: number, position: { x: number; y: number }) => void;
+
+  // 持久化标记
+  markSaved: () => void;
+}
+
+export const useProjectStore = create<ProjectState>()(
+  temporal(
+    (set, get) => ({
+      project: null,
+      isDirty: false,
+
+      newProject: (name) => {
+        set({ project: createEmptyProject(name), isDirty: false });
+      },
+
+      loadProject: (file) => {
+        set({ project: file, isDirty: false });
+      },
+
+      updateProjectMeta: (changes) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: { ...project, ...changes, updatedAt: now() },
+          isDirty: true,
+        });
+      },
+
+      addTable: (name = '新建表') => {
+        const { project } = get();
+        if (!project) return '';
+        const id = uuidv4();
+        const newTable: TableDefinition = {
+          id,
+          name,
+          schema: 'public',
+          fields: [],
+          indexes: [],
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        set({
+          project: {
+            ...project,
+            tables: [...project.tables, newTable],
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+        return id;
+      },
+
+      updateTable: (tableId, changes) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId ? { ...t, ...changes, updatedAt: now() } : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      deleteTable: (tableId) => {
+        const { project } = get();
+        if (!project) return;
+        // 同时清理其他表中引用此表的外键
+        const tables = project.tables
+          .filter(t => t.id !== tableId)
+          .map(t => ({
+            ...t,
+            fields: t.fields.map(f =>
+              f.foreignKey?.referenceTableId === tableId
+                ? { ...f, foreignKey: undefined }
+                : f
+            ),
+          }));
+        set({
+          project: { ...project, tables, updatedAt: now() },
+          isDirty: true,
+        });
+      },
+
+      addField: (tableId) => {
+        const { project } = get();
+        if (!project) return '';
+        const table = project.tables.find(t => t.id === tableId);
+        if (!table) return '';
+        const fieldId = uuidv4();
+        const newField: FieldDefinition = {
+          ...DEFAULT_FIELD,
+          id: fieldId,
+          name: `field_${table.fields.length + 1}`,
+          order: table.fields.length,
+        };
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? { ...t, fields: [...t.fields, newField], updatedAt: now() }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+        return fieldId;
+      },
+
+      updateField: (tableId, fieldId, changes) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? {
+                    ...t,
+                    fields: t.fields.map(f => (f.id === fieldId ? { ...f, ...changes } : f)),
+                    updatedAt: now(),
+                  }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      deleteField: (tableId, fieldId) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? {
+                    ...t,
+                    fields: t.fields
+                      .filter(f => f.id !== fieldId)
+                      .map((f, i) => ({ ...f, order: i })),
+                    updatedAt: now(),
+                  }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      reorderFields: (tableId, fromIndex, toIndex) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t => {
+              if (t.id !== tableId) return t;
+              const fields = [...t.fields];
+              const [moved] = fields.splice(fromIndex, 1);
+              fields.splice(toIndex, 0, moved);
+              return {
+                ...t,
+                fields: fields.map((f, i) => ({ ...f, order: i })),
+                updatedAt: now(),
+              };
+            }),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      addIndex: (tableId, index) => {
+        const { project } = get();
+        if (!project) return;
+        const newIndex: IndexDefinition = { ...index, id: uuidv4() };
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? { ...t, indexes: [...t.indexes, newIndex], updatedAt: now() }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      deleteIndex: (tableId, indexId) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? { ...t, indexes: t.indexes.filter(i => i.id !== indexId), updatedAt: now() }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      addEnum: (enumDef) => {
+        const { project } = get();
+        if (!project) return '';
+        const id = uuidv4();
+        set({
+          project: {
+            ...project,
+            enums: [...project.enums, { ...enumDef, id }],
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+        return id;
+      },
+
+      updateEnum: (enumId, changes) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            enums: project.enums.map(e => (e.id === enumId ? { ...e, ...changes } : e)),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      deleteEnum: (enumId) => {
+        const { project } = get();
+        if (!project) return;
+        // 将使用此 ENUM 的字段类型重置为 TEXT
+        const tables = project.tables.map(t => ({
+          ...t,
+          fields: t.fields.map(f =>
+            f.enumTypeId === enumId
+              ? { ...f, type: 'TEXT' as const, enumTypeId: undefined }
+              : f
+          ),
+        }));
+        set({
+          project: {
+            ...project,
+            enums: project.enums.filter(e => e.id !== enumId),
+            tables,
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      updateTablePosition: (tableId, position) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId ? { ...t, position } : t
+            ),
+          },
+        });
+        // 不标记 isDirty，位置变更不触发撤销历史
+      },
+
+      updateDiagramLayout: (zoom, position) => {
+        const { project } = get();
+        if (!project) return;
+        set({ project: { ...project, diagramLayout: { zoom, position } } });
+      },
+
+      markSaved: () => {
+        set({ isDirty: false });
+      },
+    }),
+    {
+      // 仅对影响数据结构的操作记录历史，位置更新不计入
+      partialize: (state) => ({
+        project: state.project
+          ? { ...state.project, tables: state.project.tables.map(t => ({ ...t, position: undefined })) }
+          : null,
+      }),
+      limit: 50,
+    }
+  )
+);
