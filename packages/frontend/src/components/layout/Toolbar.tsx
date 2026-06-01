@@ -21,19 +21,23 @@ import {
   CloudUploadOutlined,
   CloudDownloadOutlined,
   DisconnectOutlined,
+  ThunderboltOutlined,
+  ImportOutlined,
 } from '@ant-design/icons';
 import { useProjectStore } from '@/store/projectStore';
 import { useUiStore } from '@/store/uiStore';
 import { useConnectionStore } from '@/store/connectionStore';
 import { useSaveProject, useLoadProject } from '@/hooks/useFileSystem';
 import { saveProjectToDb, loadProjectFromDb } from '@/api/project';
+import { inspectSchema } from '@/api/connection';
+import { inspectionToProject } from '@/utils/schemaImporter';
 
 const { Text } = Typography;
 
 const Toolbar: React.FC = () => {
   const { message, modal } = App.useApp();
   const { project, isDirty, loadProject: loadProjectIntoStore, markSaved } = useProjectStore();
-  const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen } = useUiStore();
+  const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen, setExecuteDdlOpen } = useUiStore();
   const { config: dbConfig, status: dbStatus, disconnect } = useConnectionStore();
   // zundo temporal 暂时直接用 store 内置
   const temporalStore = useProjectStore.temporal;
@@ -46,6 +50,7 @@ const Toolbar: React.FC = () => {
 
   const [dbSaving, setDbSaving] = useState(false);
   const [dbLoading, setDbLoading] = useState(false);
+  const [dbImporting, setDbImporting] = useState(false);
   const dbConnected = dbStatus === 'connected';
 
   const handleNew = () => {
@@ -79,6 +84,32 @@ const Toolbar: React.FC = () => {
     } finally {
       setDbLoading(false);
     }
+  };
+
+  const handleImportFromDb = () => {
+    modal.confirm({
+      title: '从数据库导入结构？',
+      content: isDirty
+        ? '将读取所连数据库的表/字段/外键/索引/ENUM 并覆盖当前设计。当前设计有未保存改动，建议先保存。确定继续？'
+        : '将读取所连数据库的表/字段/外键/索引/ENUM，覆盖当前内存中的设计。',
+      okText: '导入并覆盖',
+      cancelText: '取消',
+      onOk: async () => {
+        setDbImporting(true);
+        try {
+          const res = await inspectSchema(dbConfig);
+          if (res.success) {
+            const imported = inspectionToProject(res.data, dbConfig.database || '导入的数据库');
+            loadProjectIntoStore(imported);
+            message.success(`已导入 ${res.data.tables.length} 张表、${res.data.enums.length} 个 ENUM`);
+          }
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '导入失败');
+        } finally {
+          setDbImporting(false);
+        }
+      },
+    });
   };
 
   const handleDisconnect = () => {
@@ -174,6 +205,16 @@ const Toolbar: React.FC = () => {
         >
           SQL
         </Button>
+        <Tooltip title={dbConnected ? '将生成的 DDL 执行到所连数据库' : '请先在「连接」中测试通过'}>
+          <Button
+            icon={<ThunderboltOutlined />}
+            size="small"
+            onClick={() => setExecuteDdlOpen(true)}
+            disabled={!project || !dbConnected}
+          >
+            执行
+          </Button>
+        </Tooltip>
         <Button
           icon={<DatabaseOutlined />}
           size="small"
@@ -208,6 +249,17 @@ const Toolbar: React.FC = () => {
             disabled={!dbConnected}
           >
             读库
+          </Button>
+        </Tooltip>
+        <Tooltip title={dbConnected ? '逆向读取数据库现有结构为设计' : '请先在「连接」中测试通过'}>
+          <Button
+            icon={<ImportOutlined />}
+            size="small"
+            loading={dbImporting}
+            onClick={handleImportFromDb}
+            disabled={!dbConnected}
+          >
+            导入
           </Button>
         </Tooltip>
         {dbConnected && (

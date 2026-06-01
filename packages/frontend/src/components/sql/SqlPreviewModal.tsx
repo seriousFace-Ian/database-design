@@ -1,17 +1,23 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Modal, Button, Space, message, Empty } from 'antd';
 import { CopyOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useUiStore } from '@/store/uiStore';
 import { useProjectStore } from '@/store/projectStore';
+import { generateProjectDdl } from '@/utils/sqlGenerator';
 
 const SqlPreviewModal: React.FC = () => {
   const { sqlPreviewOpen, setSqlPreviewOpen } = useUiStore();
   const { project } = useProjectStore();
 
-  // SQL 生成在 Phase 3 实现，此处占位
-  const sql = project
-    ? `-- SQL 生成功能将在 Phase 3 实现\n-- 项目: ${project.name}\n-- 表数量: ${project.tables.length}`
-    : '';
+  // 仅在弹窗打开且有项目时生成，避免不必要的计算
+  const sql = useMemo(
+    () => (sqlPreviewOpen && project ? generateProjectDdl(project) : ''),
+    [sqlPreviewOpen, project]
+  );
+
+  const hasContent = !!project && project.tables.length > 0;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(sql).then(() => message.success('已复制到剪贴板'));
@@ -35,10 +41,10 @@ const SqlPreviewModal: React.FC = () => {
       width={800}
       footer={
         <Space>
-          <Button icon={<CopyOutlined />} onClick={handleCopy} disabled={!sql}>
+          <Button icon={<CopyOutlined />} onClick={handleCopy} disabled={!hasContent}>
             复制
           </Button>
-          <Button icon={<DownloadOutlined />} onClick={handleDownload} disabled={!sql}>
+          <Button icon={<DownloadOutlined />} onClick={handleDownload} disabled={!hasContent}>
             下载 .sql
           </Button>
           <Button type="primary" onClick={() => setSqlPreviewOpen(false)}>
@@ -47,23 +53,23 @@ const SqlPreviewModal: React.FC = () => {
         </Space>
       }
     >
-      {sql ? (
-        <pre
-          style={{
-            background: '#1e1e1e',
-            color: '#d4d4d4',
-            padding: 16,
+      {hasContent ? (
+        <SyntaxHighlighter
+          language="sql"
+          style={oneDark}
+          customStyle={{
+            margin: 0,
             borderRadius: 6,
             maxHeight: 480,
-            overflow: 'auto',
             fontSize: 13,
             lineHeight: 1.6,
           }}
+          wrapLongLines
         >
           {sql}
-        </pre>
+        </SyntaxHighlighter>
       ) : (
-        <Empty description="暂无可预览的 SQL" />
+        <Empty description="还没有可生成 SQL 的表" />
       )}
     </Modal>
   );

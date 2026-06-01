@@ -10,6 +10,7 @@ interface UiState {
   sqlPreviewOpen: boolean;
   connectionPanelOpen: boolean;
   enumManagerOpen: boolean;
+  executeDdlOpen: boolean;
 
   setActiveView: (view: ActiveView) => void;
   selectTable: (tableId: string | null) => void;
@@ -18,6 +19,7 @@ interface UiState {
   setSqlPreviewOpen: (open: boolean) => void;
   setConnectionPanelOpen: (open: boolean) => void;
   setEnumManagerOpen: (open: boolean) => void;
+  setExecuteDdlOpen: (open: boolean) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -28,6 +30,7 @@ export const useUiStore = create<UiState>((set) => ({
   sqlPreviewOpen: false,
   connectionPanelOpen: false,
   enumManagerOpen: false,
+  executeDdlOpen: false,
 
   setActiveView: (view) => set({ activeView: view }),
   selectTable: (tableId) => set({ selectedTableId: tableId, selectedFieldId: null }),
@@ -36,4 +39,5 @@ export const useUiStore = create<UiState>((set) => ({
   setSqlPreviewOpen: (open) => set({ sqlPreviewOpen: open }),
   setConnectionPanelOpen: (open) => set({ connectionPanelOpen: open }),
   setEnumManagerOpen: (open) => set({ enumManagerOpen: open }),
+  setExecuteDdlOpen: (open) => set({ executeDdlOpen: open }),
 }));

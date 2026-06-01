@@ -43,14 +43,15 @@ export async function executeInTransaction(
   const pool = createPool(config);
   const client = await pool.connect();
   const errors: Array<{ statement: string; error: string }> = [];
-  let executedCount = 0;
+  let ran = 0;
+  let committed = false;
 
   try {
     await client.query('BEGIN');
     for (const stmt of statements) {
       try {
         await client.query(stmt);
-        executedCount++;
+        ran++;
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         errors.push({ statement: stmt, error });
@@ -58,6 +59,7 @@ export async function executeInTransaction(
       }
     }
     await client.query('COMMIT');
+    committed = true;
   } catch {
     await client.query('ROLLBACK');
   } finally {
@@ -65,7 +67,8 @@ export async function executeInTransaction(
     await pool.end();
   }
 
-  return { executedCount, errors };
+  // 事务回滚后没有任何语句真正生效，executedCount 应为 0，避免误导调用方
+  return { executedCount: committed ? ran : 0, errors };
 }
 
 /**

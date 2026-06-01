@@ -6,6 +6,7 @@ import { useUiStore } from '@/store/uiStore';
 import DesignerPage from '@/pages/DesignerPage';
 import DiagramPage from '@/pages/DiagramPage';
 import SqlPreviewModal from '@/components/sql/SqlPreviewModal';
+import ExecuteDdlModal from '@/components/sql/ExecuteDdlModal';
 import ConnectionPanel from '@/components/connection/ConnectionPanel';
 import EnumEditor from '@/components/editor/EnumEditor';
 
@@ -39,6 +40,7 @@ const AppLayout: React.FC = () => {
 
       {/* 全局弹窗 */}
       <SqlPreviewModal />
+      <ExecuteDdlModal />
       <ConnectionPanel />
       <EnumEditor />
     </Layout>

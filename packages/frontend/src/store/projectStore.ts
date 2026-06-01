@@ -72,6 +72,7 @@ interface ProjectState {
 }
 
 export const useProjectStore = create<ProjectState>()(
+  // 步骤撤销逻辑
   temporal(
     (set, get) => ({
       project: null,

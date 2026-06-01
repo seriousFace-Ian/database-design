@@ -33,7 +33,7 @@ function validateConnectionConfig(config: DbConnectionConfig): void {
   // password 不强制：本地 trust/peer 认证下密码为空属正常
   const required: (keyof DbConnectionConfig)[] = ['host', 'port', 'database', 'username'];
   for (const field of required) {
-    if (!config[field] && config[field] !== 0) {
+    if (!config[field] && config[field] !== 0) { // !== 0 是照顾 port 字段校验
       const err = new Error(`Missing required field: ${field}`);
       (err as NodeJS.ErrnoException).code = 'VALIDATION_ERROR';
       throw Object.assign(err, { statusCode: 400 });

@@ -6,6 +6,7 @@ import {
   LinkOutlined,
   PlusOutlined,
   HolderOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -26,6 +27,7 @@ import type { FieldDefinition, TableDefinition } from '@/types/schema';
 import FieldTypeSelect from './FieldTypeSelect';
 import FieldNameCell from './FieldNameCell';
 import ForeignKeyModal from './ForeignKeyModal';
+import ConstraintConfig from './ConstraintConfig';
 
 interface DraggableRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
   'data-row-key': string;
@@ -76,6 +78,7 @@ interface Props {
 const FieldsTable: React.FC<Props> = ({ table }) => {
   const { project, updateField, deleteField, addField, reorderFields } = useProjectStore();
   const [fkField, setFkField] = useState<FieldDefinition | null>(null);
+  const [checkField, setCheckField] = useState<FieldDefinition | null>(null);
 
   const enums = project?.enums ?? [];
 
@@ -233,9 +236,17 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
     {
       title: '',
       key: 'actions',
-      width: 68,
+      width: 100,
       render: (_, record) => (
         <Space size={2}>
+          <Tooltip title={record.checkConstraint ? `CHECK (${record.checkConstraint})` : '添加 CHECK 约束'}>
+            <Button
+              type="text"
+              size="small"
+              icon={<CheckCircleOutlined style={{ color: record.checkConstraint ? '#52c41a' : '#bbb' }} />}
+              onClick={() => setCheckField(record)}
+            />
+          </Tooltip>
           <Tooltip title={record.foreignKey ? '编辑外键' : '添加外键'}>
             <Button
               type="text"
@@ -297,6 +308,15 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
           tableId={table.id}
           field={fkField}
           onClose={() => setFkField(null)}
+        />
+      )}
+
+      {checkField && (
+        <ConstraintConfig
+          open
+          tableId={table.id}
+          field={checkField}
+          onClose={() => setCheckField(null)}
         />
       )}
     </>

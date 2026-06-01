@@ -30,6 +30,7 @@ async function fetchTables(pool: Pool, schemas: string[]): Promise<DbTable[]> {
      JOIN pg_namespace pgn ON pgn.oid = pgc.relnamespace AND pgn.nspname = c.table_schema
      WHERE c.table_schema IN (${schemaPlaceholders})
        AND c.table_type = 'BASE TABLE'
+       AND c.table_name <> '__dbdesign'
      ORDER BY c.table_schema, c.table_name`,
     schemas
   );
@@ -95,12 +96,21 @@ async function fetchColumns(pool: Pool, schema: string, table: string): Promise<
          AND tc.table_schema = $1 AND tc.table_name = $2
      ) pk ON pk.column_name = c.column_name
      LEFT JOIN (
-       SELECT ku.column_name, true as is_unique
-       FROM information_schema.table_constraints tc
-       JOIN information_schema.key_column_usage ku
-         ON tc.constraint_name = ku.constraint_name AND tc.table_schema = ku.table_schema
-       WHERE tc.constraint_type = 'UNIQUE'
-         AND tc.table_schema = $1 AND tc.table_name = $2
+       -- 仅标记“单列 UNIQUE 约束”的列：is_unique 表示列级唯一。
+       -- 复合 UNIQUE (a, b) 不应让 a、b 各自变成单列唯一，
+       -- 否则导入后 SQL 生成器会输出列级 UNIQUE，改变约束语义。
+       -- 复合唯一保留在索引中（pg_index 的复合唯一索引），不进入此处。
+       SELECT column_name, true as is_unique
+       FROM (
+         SELECT ku.column_name,
+                count(*) OVER (PARTITION BY ku.constraint_name) AS col_count
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage ku
+           ON tc.constraint_name = ku.constraint_name AND tc.table_schema = ku.table_schema
+         WHERE tc.constraint_type = 'UNIQUE'
+           AND tc.table_schema = $1 AND tc.table_name = $2
+       ) c_uq
+       WHERE col_count = 1
      ) uq ON uq.column_name = c.column_name
      WHERE c.table_schema = $1 AND c.table_name = $2
      ORDER BY c.ordinal_position`,
