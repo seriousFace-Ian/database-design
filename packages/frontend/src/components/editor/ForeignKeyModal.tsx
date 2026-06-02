@@ -87,6 +87,8 @@ const ForeignKeyModal: React.FC<Props> = ({ open, tableId, field, onClose }) => 
             placeholder="选择引用表"
             showSearch
             optionFilterProp="label"
+            popupMatchSelectWidth={false}
+            dropdownStyle={{ minWidth: 240 }}
             options={tables.map(t => ({ value: t.id, label: `${t.schema}.${t.name}` }))}
             onChange={(v) => {
               setRefTableId(v);
@@ -102,15 +104,19 @@ const ForeignKeyModal: React.FC<Props> = ({ open, tableId, field, onClose }) => 
           <Select
             placeholder="选择引用字段"
             disabled={!refTableId}
+            showSearch
+            optionFilterProp="label"
+            popupMatchSelectWidth={false}
+            dropdownStyle={{ minWidth: 200 }}
             options={(refTable?.fields ?? []).map(f => ({ value: f.id, label: f.name }))}
           />
         </Form.Item>
         <Space style={{ width: '100%' }} size={16}>
           <Form.Item name="onDelete" label="ON DELETE" style={{ flex: 1, minWidth: 180 }}>
-            <Select options={FK_ACTIONS} />
+            <Select options={FK_ACTIONS} popupMatchSelectWidth={false} dropdownStyle={{ minWidth: 160 }} />
           </Form.Item>
           <Form.Item name="onUpdate" label="ON UPDATE" style={{ flex: 1, minWidth: 180 }}>
-            <Select options={FK_ACTIONS} />
+            <Select options={FK_ACTIONS} popupMatchSelectWidth={false} dropdownStyle={{ minWidth: 160 }} />
           </Form.Item>
         </Space>
         <Form.Item name="constraintName" label="约束名（可选）">

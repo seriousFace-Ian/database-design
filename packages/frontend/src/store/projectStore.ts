@@ -18,6 +18,30 @@ const DEFAULT_FIELD: Omit<FieldDefinition, 'id' | 'order'> = {
   isUnique: false,
 };
 
+// 一键审计字段模板。created_by 默认 BIGINT 可空，方便用户后续按业务关联到用户表外键
+const AUDIT_FIELD_TEMPLATES: ReadonlyArray<Omit<FieldDefinition, 'id' | 'order'>> = [
+  {
+    name: 'created_at', type: 'TIMESTAMPTZ',
+    nullable: false, isPrimaryKey: false, isUnique: false,
+    defaultValue: 'now()', comment: '创建时间',
+  },
+  {
+    name: 'updated_at', type: 'TIMESTAMPTZ',
+    nullable: false, isPrimaryKey: false, isUnique: false,
+    defaultValue: 'now()', comment: '更新时间',
+  },
+  {
+    name: 'deleted_at', type: 'TIMESTAMPTZ',
+    nullable: true, isPrimaryKey: false, isUnique: false,
+    comment: '软删除时间（NULL = 未删除）',
+  },
+  {
+    name: 'created_by', type: 'BIGINT',
+    nullable: true, isPrimaryKey: false, isUnique: false,
+    comment: '创建者用户 ID',
+  },
+];
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -50,6 +74,7 @@ interface ProjectState {
 
   // 字段操作
   addField: (tableId: string) => string;
+  addAuditFields: (tableId: string) => { added: string[]; skipped: string[] };
   updateField: (tableId: string, fieldId: string, changes: Partial<FieldDefinition>) => void;
   deleteField: (tableId: string, fieldId: string) => void;
   reorderFields: (tableId: string, fromIndex: number, toIndex: number) => void;
@@ -179,6 +204,44 @@ export const useProjectStore = create<ProjectState>()(
           isDirty: true,
         });
         return fieldId;
+      },
+
+      addAuditFields: (tableId) => {
+        const { project } = get();
+        if (!project) return { added: [], skipped: [] };
+        const table = project.tables.find(t => t.id === tableId);
+        if (!table) return { added: [], skipped: [] };
+
+        const existingNames = new Set(table.fields.map(f => f.name));
+        const added: string[] = [];
+        const skipped: string[] = [];
+        const newFields: FieldDefinition[] = [];
+        let order = table.fields.length;
+
+        for (const proto of AUDIT_FIELD_TEMPLATES) {
+          if (existingNames.has(proto.name)) {
+            skipped.push(proto.name);
+            continue;
+          }
+          newFields.push({ ...proto, id: uuidv4(), order: order++ });
+          added.push(proto.name);
+        }
+
+        if (newFields.length === 0) return { added, skipped };
+
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? { ...t, fields: [...t.fields, ...newFields], updatedAt: now() }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+        return { added, skipped };
       },
 
       updateField: (tableId, fieldId, changes) => {
@@ -344,14 +407,17 @@ export const useProjectStore = create<ProjectState>()(
               t.id === tableId ? { ...t, position } : t
             ),
           },
+          isDirty: true,
         });
-        // 不标记 isDirty，位置变更不触发撤销历史
       },
 
       updateDiagramLayout: (zoom, position) => {
         const { project } = get();
         if (!project) return;
-        set({ project: { ...project, diagramLayout: { zoom, position } } });
+        set({
+          project: { ...project, diagramLayout: { zoom, position } },
+          isDirty: true,
+        });
       },
 
       markSaved: () => {
@@ -359,10 +425,15 @@ export const useProjectStore = create<ProjectState>()(
       },
     }),
     {
-      // 仅对影响数据结构的操作记录历史，位置更新不计入
+      // 仅对影响数据结构的操作记录历史，节点位置 / 画布视口都剔除
+      // 否则拖动节点、平移缩放会污染撤销栈
       partialize: (state) => ({
         project: state.project
-          ? { ...state.project, tables: state.project.tables.map(t => ({ ...t, position: undefined })) }
+          ? {
+              ...state.project,
+              diagramLayout: undefined,
+              tables: state.project.tables.map(t => ({ ...t, position: undefined })),
+            }
           : null,
       }),
       limit: 50,

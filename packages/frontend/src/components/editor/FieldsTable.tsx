@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Table, Button, Tooltip, Space, Empty } from 'antd';
+import { Table, Button, Tooltip, Space, Empty, App } from 'antd';
 import {
   DeleteOutlined,
   KeyOutlined,
@@ -7,6 +7,7 @@ import {
   PlusOutlined,
   HolderOutlined,
   CheckCircleOutlined,
+  FieldTimeOutlined,
 } from '@ant-design/icons';
 import {
   DndContext,
@@ -76,11 +77,23 @@ interface Props {
 }
 
 const FieldsTable: React.FC<Props> = ({ table }) => {
-  const { project, updateField, deleteField, addField, reorderFields } = useProjectStore();
+  const { message } = App.useApp();
+  const { project, updateField, deleteField, addField, addAuditFields, reorderFields } = useProjectStore();
   const [fkField, setFkField] = useState<FieldDefinition | null>(null);
   const [checkField, setCheckField] = useState<FieldDefinition | null>(null);
 
   const enums = project?.enums ?? [];
+
+  const handleAddAudit = () => {
+    const { added, skipped } = addAuditFields(table.id);
+    if (added.length > 0 && skipped.length > 0) {
+      message.success(`已添加 ${added.join('、')}；已存在跳过 ${skipped.join('、')}`);
+    } else if (added.length > 0) {
+      message.success(`已添加 ${added.length} 个审计字段：${added.join('、')}`);
+    } else {
+      message.info(`审计字段已全部存在：${skipped.join('、')}`);
+    }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -97,11 +110,13 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
     {
       key: 'drag',
       width: 32,
+      fixed: 'left',
       render: () => <HolderOutlined style={{ color: '#bbb' }} />,
     },
     {
       title: '',
       width: 32,
+      fixed: 'left',
       key: 'icons',
       render: (_, record) => (
         <Space size={2}>
@@ -122,7 +137,8 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       title: '字段名',
       dataIndex: 'name',
       key: 'name',
-      width: 160,
+      width: 180,
+      fixed: 'left',
       render: (_, record) => (
         <FieldNameCell
           field={record}
@@ -134,6 +150,7 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
+      width: 340,
       render: (_, record) => (
         <FieldTypeSelect
           field={record}
@@ -217,6 +234,7 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       title: '注释',
       dataIndex: 'comment',
       key: 'comment',
+      width: 240,
       render: (val, record) => (
         <input
           style={{
@@ -236,7 +254,8 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
     {
       title: '',
       key: 'actions',
-      width: 100,
+      width: 110,
+      fixed: 'right',
       render: (_, record) => (
         <Space size={2}>
           <Tooltip title={record.checkConstraint ? `CHECK (${record.checkConstraint})` : '添加 CHECK 约束'}>
@@ -279,6 +298,8 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
             rowKey="id"
             size="small"
             pagination={false}
+            // 列宽合计约 32+32+180+340+50+44+44+140+240+110 ≈ 1212；窄屏内部横向滚动
+            scroll={{ x: 1240 }}
             components={{ body: { row: DraggableRow } }}
             locale={{
               emptyText: (
@@ -289,14 +310,36 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
               ),
             }}
             footer={() => (
-              <Button
-                type="dashed"
-                icon={<PlusOutlined />}
-                onClick={() => addField(table.id)}
-                style={{ width: '100%' }}
-              >
-                添加字段
-              </Button>
+              <Space.Compact style={{ width: '100%' }}>
+                <Button
+                  type="dashed"
+                  icon={<PlusOutlined />}
+                  onClick={() => addField(table.id)}
+                  style={{ flex: 1 }}
+                >
+                  添加字段
+                </Button>
+                <Tooltip
+                  title={
+                    <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                      一键补齐审计字段（已存在的同名字段会跳过）：
+                      <div>· created_at  TIMESTAMPTZ NOT NULL DEFAULT now()</div>
+                      <div>· updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()</div>
+                      <div>· deleted_at  TIMESTAMPTZ NULL（软删除）</div>
+                      <div>· created_by  UUID NULL（可手动改类型/加外键）</div>
+                    </div>
+                  }
+                >
+                  <Button
+                    type="dashed"
+                    icon={<FieldTimeOutlined />}
+                    onClick={handleAddAudit}
+                    style={{ flex: 1 }}
+                  >
+                    审计字段
+                  </Button>
+                </Tooltip>
+              </Space.Compact>
             )}
           />
         </SortableContext>

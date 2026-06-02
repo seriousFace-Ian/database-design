@@ -33,17 +33,16 @@ const FieldTypeSelect: React.FC<Props> = ({ field, enums, onChange }) => {
         onChange={handleTypeChange}
         showSearch
         optionFilterProp="label"
+        // 触发器只显 value（如 INTEGER），弹层显完整 label（如 INTEGER（-2^31 ~ 2^31））
+        optionLabelProp="value"
+        popupMatchSelectWidth={false}
+        dropdownStyle={{ minWidth: 240 }}
+        // 主下拉仅列 PG 内置类型 + 一项通用 ENUM 入口；具体哪一个枚举由右侧第二下拉选择
         options={PG_TYPE_GROUPS.flatMap(g =>
           g.types.map(t => ({
             label: t.label,
             value: t.value,
             group: g.label,
-          }))
-        ).concat(
-          enums.map(e => ({
-            label: `${e.name} (ENUM)`,
-            value: 'USER-DEFINED' as PgFieldType,
-            group: '自定义枚举',
           }))
         )}
       />
@@ -90,10 +89,14 @@ const FieldTypeSelect: React.FC<Props> = ({ field, enums, onChange }) => {
         <Select
           size="small"
           value={field.enumTypeId}
-          style={{ width: 120 }}
+          style={{ width: 140 }}
           placeholder="选择枚举"
           options={enumOptions}
           onChange={enumTypeId => onChange({ enumTypeId })}
+          showSearch
+          optionFilterProp="label"
+          popupMatchSelectWidth={false}
+          dropdownStyle={{ minWidth: 200 }}
         />
       )}
     </Space>
