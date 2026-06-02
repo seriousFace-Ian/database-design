@@ -7,13 +7,16 @@ import DesignerPage from '@/pages/DesignerPage';
 import DiagramPage from '@/pages/DiagramPage';
 import SqlPreviewModal from '@/components/sql/SqlPreviewModal';
 import ExecuteDdlModal from '@/components/sql/ExecuteDdlModal';
+import SqlDiffModal from '@/components/sql/SqlDiffModal';
 import ConnectionPanel from '@/components/connection/ConnectionPanel';
 import EnumEditor from '@/components/editor/EnumEditor';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 const { Sider, Content } = Layout;
 
 const AppLayout: React.FC = () => {
   const { activeView, sidebarCollapsed } = useUiStore();
+  useKeyboardShortcuts();
 
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
@@ -41,6 +44,7 @@ const AppLayout: React.FC = () => {
       {/* 全局弹窗 */}
       <SqlPreviewModal />
       <ExecuteDdlModal />
+      <SqlDiffModal />
       <ConnectionPanel />
       <EnumEditor />
     </Layout>

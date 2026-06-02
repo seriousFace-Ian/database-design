@@ -23,6 +23,7 @@ import {
   DisconnectOutlined,
   ThunderboltOutlined,
   ImportOutlined,
+  DiffOutlined,
 } from '@ant-design/icons';
 import { useProjectStore } from '@/store/projectStore';
 import { useUiStore } from '@/store/uiStore';
@@ -37,7 +38,7 @@ const { Text } = Typography;
 const Toolbar: React.FC = () => {
   const { message, modal } = App.useApp();
   const { project, isDirty, loadProject: loadProjectIntoStore, markSaved } = useProjectStore();
-  const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen, setExecuteDdlOpen } = useUiStore();
+  const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen, setExecuteDdlOpen, setSqlDiffOpen } = useUiStore();
   const { config: dbConfig, status: dbStatus, disconnect } = useConnectionStore();
   // zundo temporal 暂时直接用 store 内置
   const temporalStore = useProjectStore.temporal;
@@ -213,6 +214,16 @@ const Toolbar: React.FC = () => {
             disabled={!project || !dbConnected}
           >
             执行
+          </Button>
+        </Tooltip>
+        <Tooltip title={dbConnected ? '对比当前设计与数据库现状，生成 ALTER 语句' : '请先在「连接」中测试通过'}>
+          <Button
+            icon={<DiffOutlined />}
+            size="small"
+            onClick={() => setSqlDiffOpen(true)}
+            disabled={!project || !dbConnected}
+          >
+            对比
           </Button>
         </Tooltip>
         <Button
