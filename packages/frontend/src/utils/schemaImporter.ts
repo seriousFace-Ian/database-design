@@ -8,6 +8,7 @@ import type {
   IndexType,
   FkAction,
   PgFieldType,
+  TableConstraint,
 } from '@/types/schema';
 import type { InspectSchemaResponse } from '@/types/api';
 
@@ -250,6 +251,26 @@ export function inspectionToProject(data: InspectData, projectName: string): Pro
       });
     }
     table.indexes = indexes;
+  });
+
+  // 5) 表级约束（UNIQUE / CHECK）：按列名映射到 fieldIds；后端已过滤单列重复项
+  data.tables.forEach((t, ti) => {
+    const table = tables[ti];
+    const colMap = fieldIdByCol.get(table.id)!;
+    const constraints: TableConstraint[] = [];
+    for (const tc of t.constraints ?? []) {
+      if (tc.kind === 'UNIQUE') {
+        const fieldIds = (tc.columns ?? [])
+          .map(c => colMap.get(c))
+          .filter((id): id is string => !!id);
+        if (fieldIds.length === 0) continue;
+        constraints.push({ id: uuidv4(), name: tc.name, kind: 'UNIQUE', fieldIds });
+      } else {
+        if (!tc.expression?.trim()) continue;
+        constraints.push({ id: uuidv4(), name: tc.name, kind: 'CHECK', expression: tc.expression });
+      }
+    }
+    if (constraints.length > 0) table.constraints = constraints;
   });
 
   return {

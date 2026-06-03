@@ -37,6 +37,14 @@ export interface DbTable {
   columns: DbColumn[];
   foreignKeys: DbForeignKey[];
   indexes: DbIndex[];
+  constraints?: DbTableConstraint[];
+}
+
+export interface DbTableConstraint {
+  name: string;
+  kind: 'UNIQUE' | 'CHECK';
+  columns?: string[];      // UNIQUE
+  expression?: string;     // CHECK，已剥外层 CHECK(...)
 }
 
 export interface DbColumn {

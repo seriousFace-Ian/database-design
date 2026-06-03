@@ -4,6 +4,7 @@ import type {
   FieldDefinition,
   EnumType,
   FkAction,
+  TableConstraint,
 } from '@/types/schema';
 import { typeHasLength, typeHasPrecision } from './typeDefinitions';
 
@@ -124,7 +125,71 @@ function generateCreateTableStatement(table: TableDefinition, enums: EnumType[])
     lines.push(`  PRIMARY KEY (${cols})`);
   }
 
+  // 表级约束（UNIQUE / CHECK），列定义 + PRIMARY KEY 之后追加
+  for (const c of table.constraints ?? []) {
+    const line = renderTableConstraintInline(c, table);
+    if (line) lines.push(`  ${line}`);
+  }
+
   return `CREATE TABLE ${qualified(table.schema, table.name)} (\n${lines.join(',\n')}\n);`;
+}
+
+// ==================== 表级约束 ====================
+
+/** 缺省约束名前缀；UNIQUE 拼字段，CHECK 用短哈希避免重名 */
+function defaultConstraintName(c: TableConstraint, table: TableDefinition): string {
+  if (c.kind === 'UNIQUE') {
+    const cols = (c.fieldIds ?? [])
+      .map(id => table.fields.find(f => f.id === id)?.name)
+      .filter(Boolean)
+      .join('_');
+    return `uq_${table.name}_${cols || 'unique'}`;
+  }
+  // CHECK
+  return `chk_${table.name}_${shortHash(c.expression ?? c.id)}`;
+}
+
+/** 简短稳定哈希（djb2 变体）；仅作为约束名后缀，避免不同表达式撞名 */
+function shortHash(input: string): string {
+  let h = 5381;
+  for (let i = 0; i < input.length; i++) {
+    h = ((h << 5) + h) ^ input.charCodeAt(i);
+  }
+  return (h >>> 0).toString(36).slice(0, 6);
+}
+
+/** 渲染 CREATE TABLE 内联的表级约束行；引用不存在的字段或表达式为空时返回 null */
+export function renderTableConstraintInline(
+  c: TableConstraint,
+  table: TableDefinition
+): string | null {
+  const name = c.name?.trim() || defaultConstraintName(c, table);
+  if (c.kind === 'UNIQUE') {
+    const cols = (c.fieldIds ?? [])
+      .map(id => table.fields.find(f => f.id === id))
+      .filter((f): f is FieldDefinition => !!f)
+      .map(f => quoteIdent(f.name));
+    if (cols.length < 1) return null; // 至少 1 列；UI 强制 2+，但宽容渲染
+    return `CONSTRAINT ${quoteIdent(name)} UNIQUE (${cols.join(', ')})`;
+  }
+  const expr = c.expression?.trim();
+  if (!expr) return null;
+  return `CONSTRAINT ${quoteIdent(name)} CHECK (${expr})`;
+}
+
+/** ALTER TABLE 形式的表级约束（用于 diff 生成 ADD CONSTRAINT 语句） */
+export function renderTableConstraintAlter(
+  c: TableConstraint,
+  table: TableDefinition
+): string | null {
+  const line = renderTableConstraintInline(c, table);
+  if (!line) return null;
+  return `ALTER TABLE ${qualified(table.schema, table.name)} ADD ${line};`;
+}
+
+/** 取约束的最终落地名（缺省时返回工具推断的名字，供 diff 按 name 匹配） */
+export function resolveConstraintName(c: TableConstraint, table: TableDefinition): string {
+  return c.name?.trim() || defaultConstraintName(c, table);
 }
 
 // ==================== ALTER TABLE ADD FOREIGN KEY ====================

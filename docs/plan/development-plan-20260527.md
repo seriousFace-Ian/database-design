@@ -542,3 +542,188 @@ POST /api/project/load   → 读取库中保存的 ProjectFile（found=false 表
 3. 刷新页面（清空内存状态）→「从数据库加载」→ 设计完整恢复，关系图与字段一致。
 4. 再次「保存到数据库」→ 确认仍只有一行（upsert 生效，`updated_at` 刷新）。
 5. 对全新库直接点「保存到数据库」→ 确认自愈建表成功，无需手动初始化。
+
+---
+
+## Phase 7 — 表级约束：组合 UNIQUE 与 CHECK（1.5 - 2 天）
+
+### 定位
+
+Phase 1-6 已交付完整设计 / 生成 / 执行 / 逆向 / 对比闭环，但 UNIQUE 与 CHECK 仍**只支持列级**：
+
+- 当前 `FieldDefinition.isUnique` 只能表达单列 UNIQUE，无法生成 `UNIQUE (col_a, col_b)`。
+- 当前 `FieldDefinition.checkConstraint` 是列级字符串，PG 虽允许在列级 CHECK 里引用其他列，但语义上"挂在某一列下"是错的（重命名/删除该列会丢失约束）。
+- 现实建模高频场景：业务唯一键 `UNIQUE(owner_id, slug)`、时间窗 `CHECK (start_date < end_date)`、金额 `CHECK (total = price * quantity)` 等都无法表达。
+
+Phase 7 引入**表级约束**作为一等公民。组合外键 / 排他约束（EXCLUSION）暂不在范围内。
+
+### 数据模型扩展（`types/schema.ts`）
+
+```typescript
+export type TableConstraintKind = 'UNIQUE' | 'CHECK';
+
+export interface TableConstraint {
+  id: string;
+  name?: string;             // CONSTRAINT <name>，省略时由生成器构造
+  kind: TableConstraintKind;
+  fieldIds?: string[];       // UNIQUE 必填；CHECK 可选（仅元信息，便于 UI 显示关联列）
+  expression?: string;       // CHECK 必填（不含 CHECK 关键字和外层括号）
+  comment?: string;
+}
+
+interface TableDefinition {
+  // ... 原有字段
+  constraints?: TableConstraint[];   // 表级约束（向后兼容：旧 JSON 缺该字段视为 []）
+}
+```
+
+- 不复用 `IndexDefinition` 表达"组合 UNIQUE"：UNIQUE 约束在 PG 中是独立的 catalog 实体，与 INDEX 区分；混淆会让 diff 不准（重建索引 vs 重建约束行为不同）。
+- CHECK 的 `fieldIds` 仅作 UI 提示，**不**参与 SQL 生成；表达式真正引用哪些列由 PG 自身解析。
+
+### 后端：逆向导入扩展
+
+**`services/schemaInspector.ts`** 增补查询 `pg_constraint`，过滤 contype IN ('u', 'c')：
+
+```sql
+SELECT
+  con.conname        AS name,
+  con.contype        AS kind,   -- 'u' | 'c'
+  pg_get_constraintdef(con.oid) AS def,
+  array_agg(att.attname ORDER BY u.ord) FILTER (WHERE att.attname IS NOT NULL) AS columns
+FROM pg_constraint con
+JOIN pg_class rel ON rel.oid = con.conrelid
+JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+LEFT JOIN unnest(con.conkey) WITH ORDINALITY AS u(attnum, ord) ON true
+LEFT JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = u.attnum
+WHERE ns.nspname = $1 AND rel.relname = $2 AND con.contype IN ('u', 'c')
+GROUP BY con.conname, con.contype, con.oid;
+```
+
+**归类规则**（避免与列级表达重复）：
+
+- `contype = 'u'`，`columns.length == 1` → 已由列级 `isUnique` 表达，跳过。
+- `contype = 'u'`，`columns.length >= 2` → 进表级 UNIQUE。
+- `contype = 'c'`，`pg_get_constraintdef` 返回形如 `CHECK ((col >= 0))`，conkey 长度 == 1 且表达式只引用该列 → 列级 CHECK（已被 `column.checkConstraint` 表达），跳过。
+- 否则 → 进表级 CHECK，剥去外层 `CHECK (` 与末尾 `)`，保留内部表达式。
+
+**API 返回扩展**：`InspectSchemaResponse.tables[i]` 追加 `constraints: DbTableConstraint[]`。
+
+```typescript
+interface DbTableConstraint {
+  name: string;
+  kind: 'UNIQUE' | 'CHECK';
+  columns?: string[];        // UNIQUE
+  expression?: string;       // CHECK，已剥外层 CHECK(...)
+}
+```
+
+### 前端：状态 / UI
+
+**`projectStore.ts`**：
+
+```typescript
+addTableConstraint:    (tableId, constraint: Omit<TableConstraint,'id'>) => string;
+updateTableConstraint: (tableId, constraintId, changes: Partial<TableConstraint>) => void;
+deleteTableConstraint: (tableId, constraintId) => void;
+```
+
+均设 `isDirty: true`。`partialize` 不需变（约束属于数据结构，应进撤销栈）。
+
+**`TableConstraintsPanel.tsx`**（新组件，挂在 `TableEditor` 内，字段表下方折叠区或独立 Tab）：
+
+- 列表：每行 `kind` 彩色 Tag、name、内容预览（UNIQUE 显示字段名拼接、CHECK 显示表达式 ellipsis）、编辑 / 删除按钮。
+- 添加 UNIQUE：Modal 内 `Select mode="multiple"` 选 2 个以上字段 + 可选约束名（占位提示默认会生成 `uq_<table>_<col1>_<col2>`）。
+- 添加 CHECK：Modal 内多行 textarea 填表达式 + 可选字段多选（仅元信息）+ 可选约束名（占位 `chk_<table>_<auto>`）。
+- 校验：UNIQUE 至少 2 个字段；CHECK 表达式非空、不做语法分析；约束名格式合法（PG 标识符规则）。
+
+**`schemaImporter.ts`**：把 `DbTableConstraint[]` 映射回 `TableConstraint[]`，跳过逆向归类规则中标记为列级的项。
+
+### SQL 生成（`sqlGenerator.ts`）
+
+在 `generateCreateTableStatement` 的列定义后，PRIMARY KEY 行之后，追加约束行：
+
+```typescript
+function renderTableConstraint(tc: TableConstraint, tableName: string, fields: FieldDefinition[]): string {
+  const fieldName = (id: string) => fields.find(f => f.id === id)?.name ?? '?';
+  if (tc.kind === 'UNIQUE') {
+    const cols = (tc.fieldIds ?? []).map(id => quoteIdent(fieldName(id))).join(', ');
+    const name = tc.name?.trim() || `uq_${tableName}_${(tc.fieldIds ?? []).map(fieldName).join('_')}`;
+    return `CONSTRAINT ${quoteIdent(name)} UNIQUE (${cols})`;
+  }
+  // CHECK
+  const name = tc.name?.trim() || `chk_${tableName}_${shortHash(tc.expression ?? '')}`;
+  return `CONSTRAINT ${quoteIdent(name)} CHECK (${(tc.expression ?? '').trim()})`;
+}
+```
+
+输出形如：
+
+```sql
+CREATE TABLE "public"."events" (
+  "id" BIGSERIAL,
+  "start_date" DATE,
+  "end_date" DATE,
+  PRIMARY KEY ("id"),
+  CONSTRAINT "chk_events_dates" CHECK (start_date < end_date),
+  CONSTRAINT "uq_events_owner_slug" UNIQUE ("owner_id", "slug")
+);
+```
+
+`generateProjectDdl` 的「数据表」分节自然带上；「注释」分节不变。
+
+### Diff（`schemaDiff.ts`）
+
+`TableModification` 追加：
+
+```typescript
+tableConstraintsAdded:   TableConstraint[];
+tableConstraintsDropped: { name: string }[];
+```
+
+- 按 `name` 匹配（无 name 时按 `kind` + `fieldIds`/`expression` 哈希作为合成 key）。
+- 同 key 但定义不同 → drop + add（PG 不允许 ALTER 改约束定义）。
+- DDL 输出：
+  - `ALTER TABLE ... DROP CONSTRAINT IF EXISTS "<name>";` 进 `alters` 的 DROP 段。
+  - `ALTER TABLE ... ADD CONSTRAINT "<name>" UNIQUE/CHECK (...);` 进 `alters` 的 ADD 段。
+- 新增表（在 `tables.added`）的表级约束由 `renderCreateTableBlock` 内联到 `CREATE TABLE` 列定义里，不重复 emit。
+
+### 关系图（可选小改）
+
+- TableNode 不需要为表级约束添加 Handle。
+- 在表头右侧可以加一个 🔒 小徽标，鼠标悬停 Tooltip 列出当前所有 UNIQUE / CHECK 约束名（便于巡视）。
+
+### 测试
+
+- `sqlGenerator.test.ts`：① 仅 UNIQUE、② 仅 CHECK、③ UNIQUE + CHECK 共存、④ 与 PK 共存、⑤ 无名约束的自动命名稳定。
+- `schemaDiff.test.ts`：① 新增 UNIQUE、② 删除 CHECK、③ 同名约束定义变更（drop+add）、④ 新表内联约束 vs ALTER 路径正确分流。
+- `schemaImporter.test.ts`：① 单列 UNIQUE 不被升格为表级、② 多列 UNIQUE 进表级、③ 多列 CHECK 进表级、④ 单列引用本列的 CHECK 不被升格。
+
+### 验收
+
+1. 设计一张 `events(start_date, end_date)`，加 `CHECK (start_date < end_date)`。
+2. 设计一张 `team_members(team_id, user_id, role)`，加 `UNIQUE (team_id, user_id)`。
+3. SQL 预览正确，执行到本地 PG，`psql \d events` / `\d team_members` 看到两条约束。
+4. 故意违反（同一组合插入两次、`end_date < start_date`）→ PG 报错。
+5. 逆向导入这两张表 → 表级约束正确出现在新组件列表里，**不**被错误地写成列级。
+6. 修改 CHECK 表达式后「对比」→ 生成 `DROP CONSTRAINT ... ; ADD CONSTRAINT ...;` 两条 ALTER；执行后 `\d` 验证表达式已更新。
+
+### 风险与权衡
+
+| 风险 | 应对 |
+|------|------|
+| 列级 CHECK 与表级 CHECK 语义重叠 | 逆向导入按 conkey 长度 + 引用列分流；UI 引导：单列校验仍走字段行 ConstraintConfig，多列走 TableConstraintsPanel |
+| CHECK 表达式不做语法分析 | 不做静态校验，由 PG 在执行时报错；UI 仅做非空校验 |
+| 约束名冲突 | PG 约束名 per-table 唯一；工具生成的 `uq_/chk_` 前缀已包含表名与列名，重复概率极低，若用户手填重名 PG 会报错 |
+| 删除约束所引用的字段 | 删字段时不主动联动删约束（保持简洁）；执行 SQL 时 PG 报错，由用户回到 UI 修复 |
+| `IndexDefinition.isUnique=true` 与 `UNIQUE` 约束语义重叠 | 文档说明：组合唯一性优先用表级 UNIQUE 约束；UNIQUE INDEX 仅作"性能索引"理解 |
+
+### 估时
+
+约 **1.5 - 2 天**：
+
+| 子项 | 估时 |
+|------|------|
+| 数据模型 + projectStore | 0.5d |
+| TableConstraintsPanel UI + 两个添加 Modal | 0.5d |
+| sqlGenerator + schemaDiff 改造 | 0.5d |
+| schemaInspector 增补 + schemaImporter 接入 + 单测 | 0.5d |

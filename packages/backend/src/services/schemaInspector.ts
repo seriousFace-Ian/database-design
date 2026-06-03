@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { createPool } from './pgClient';
-import { DbConnectionConfig, DbTable, DbColumn, DbForeignKey, DbIndex, DbEnum, InspectSchemaResponse } from '../types';
+import { DbConnectionConfig, DbTable, DbColumn, DbForeignKey, DbIndex, DbEnum, DbTableConstraint, InspectSchemaResponse } from '../types';
 
 export async function inspectSchema(
   config: DbConnectionConfig,
@@ -37,10 +37,11 @@ async function fetchTables(pool: Pool, schemas: string[]): Promise<DbTable[]> {
 
   const tables: DbTable[] = [];
   for (const row of tablesResult.rows) {
-    const [columns, foreignKeys, indexes] = await Promise.all([
+    const [columns, foreignKeys, indexes, constraints] = await Promise.all([
       fetchColumns(pool, row.table_schema, row.table_name),
       fetchForeignKeys(pool, row.table_schema, row.table_name),
       fetchIndexes(pool, row.table_schema, row.table_name),
+      fetchTableConstraints(pool, row.table_schema, row.table_name),
     ]);
 
     tables.push({
@@ -50,10 +51,86 @@ async function fetchTables(pool: Pool, schemas: string[]): Promise<DbTable[]> {
       columns,
       foreignKeys,
       indexes,
+      constraints,
     });
   }
 
   return tables;
+}
+
+/**
+ * 抓取表级 UNIQUE / CHECK 约束。
+ * 排除规则：
+ *   - 单列 UNIQUE：已由列级 isUnique 表达，避免重复
+ *   - 单列且表达式仅引用本列的 CHECK：已由列级 checkConstraint 表达
+ *   - PG 自动产生的 `*_not_null` CHECK：忽略
+ */
+async function fetchTableConstraints(
+  pool: Pool,
+  schema: string,
+  table: string
+): Promise<DbTableConstraint[]> {
+  const result = await pool.query<{
+    name: string;
+    kind: string;       // 'u' | 'c'
+    def: string;        // pg_get_constraintdef 的全文，如 "UNIQUE (a, b)" 或 "CHECK ((col >= 0))"
+    columns: (string | null)[] | null;
+  }>(
+    `SELECT
+       con.conname AS name,
+       con.contype::text AS kind,
+       pg_get_constraintdef(con.oid) AS def,
+       (
+         SELECT array_agg(att.attname ORDER BY u.ord)
+         FROM unnest(con.conkey) WITH ORDINALITY AS u(attnum, ord)
+         JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = u.attnum
+       ) AS columns
+     FROM pg_constraint con
+     JOIN pg_class rel ON rel.oid = con.conrelid
+     JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+     WHERE ns.nspname = $1 AND rel.relname = $2
+       AND con.contype IN ('u', 'c')
+     ORDER BY con.conname`,
+    [schema, table]
+  );
+
+  const out: DbTableConstraint[] = [];
+  for (const row of result.rows) {
+    const cols = (row.columns ?? []).filter((c): c is string => !!c);
+    if (row.kind === 'u') {
+      // 单列 UNIQUE 走列级，跳过
+      if (cols.length < 2) continue;
+      out.push({ name: row.name, kind: 'UNIQUE', columns: cols });
+      continue;
+    }
+    // CHECK：剥外层 "CHECK (...)"，保留内部表达式（可能含外层括号，由 PG 输出决定）
+    const m = row.def.match(/^CHECK\s*\((.*)\)\s*$/i);
+    const expr = (m ? m[1] : row.def).trim();
+    // 排除 PG 自动给 NOT NULL 列生成的 *_not_null CHECK
+    if (/^\w+ IS NOT NULL$/i.test(expr)) continue;
+    // 单列且表达式只引用该列 → 已被列级 checkConstraint 表达
+    if (cols.length === 1) {
+      const col = cols[0];
+      const onlyRefsCol = new RegExp(`^[^a-zA-Z_]*\\(*\\s*"?${escapeRegex(col)}"?\\b`).test(expr);
+      if (onlyRefsCol && !mentionsOtherIdentifiers(expr, col)) continue;
+    }
+    out.push({ name: row.name, kind: 'CHECK', expression: expr });
+  }
+  return out;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 粗略判断表达式中除了已知列之外是否还引用了其他标识符 */
+function mentionsOtherIdentifiers(expr: string, knownCol: string): boolean {
+  const KW = new Set([
+    'AND', 'OR', 'NOT', 'IS', 'NULL', 'TRUE', 'FALSE',
+    'IN', 'BETWEEN', 'LIKE', 'ILIKE', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+  ]);
+  const idents = expr.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) ?? [];
+  return idents.some(i => i !== knownCol && !KW.has(i.toUpperCase()));
 }
 
 async function fetchColumns(pool: Pool, schema: string, table: string): Promise<DbColumn[]> {

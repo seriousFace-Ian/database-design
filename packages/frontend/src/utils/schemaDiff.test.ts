@@ -365,6 +365,79 @@ describe('schemaDiff', () => {
     expect(dropTypeIdx).toBeGreaterThan(alterIdx);
   });
 
+  it('detects added table-level UNIQUE constraint', () => {
+    const fa = field({ id: 'fa', name: 'team_id', type: 'BIGINT', nullable: false });
+    const fb = field({ id: 'fb', name: 'user_id', type: 'BIGINT', nullable: false });
+    const before = table({ id: 't1', name: 'memberships', fields: [fa, fb], constraints: [] });
+    const after = table({
+      id: 't1', name: 'memberships', fields: [fa, fb],
+      constraints: [{ id: 'c1', name: 'uq_team_user', kind: 'UNIQUE', fieldIds: ['fa', 'fb'] }],
+    });
+    const diff = computeSchemaDiff(project({ tables: [before] }), project({ tables: [after] }));
+    const mod = diff.tables.modified[0];
+    expect(mod.tableConstraintsAdded).toHaveLength(1);
+    expect(mod.tableConstraintsAdded[0].resolvedName).toBe('uq_team_user');
+    const sql = flattenDiffSql(renderDiffSql(diff, [], [after]));
+    expect(sql).toContain(
+      'ALTER TABLE "public"."memberships" ADD CONSTRAINT "uq_team_user" UNIQUE ("team_id", "user_id");'
+    );
+  });
+
+  it('detects dropped table-level CHECK constraint', () => {
+    const fa = field({ id: 'fa', name: 'start_date', type: 'DATE' });
+    const fb = field({ id: 'fb', name: 'end_date', type: 'DATE' });
+    const before = table({
+      id: 't1', name: 'events', fields: [fa, fb],
+      constraints: [{ id: 'c1', name: 'chk_dates', kind: 'CHECK', expression: 'start_date < end_date' }],
+    });
+    const after = table({ id: 't1', name: 'events', fields: [fa, fb], constraints: [] });
+    const diff = computeSchemaDiff(project({ tables: [before] }), project({ tables: [after] }));
+    const mod = diff.tables.modified[0];
+    expect(mod.tableConstraintsDropped).toEqual([{ name: 'chk_dates' }]);
+    const sql = flattenDiffSql(renderDiffSql(diff, [], [after]));
+    expect(sql).toContain(
+      'ALTER TABLE "public"."events" DROP CONSTRAINT IF EXISTS "chk_dates";'
+    );
+  });
+
+  it('same constraint name with changed definition → drop + add', () => {
+    const fa = field({ id: 'fa', name: 'a', type: 'INTEGER' });
+    const fb = field({ id: 'fb', name: 'b', type: 'INTEGER' });
+    const before = table({
+      id: 't1', name: 't', fields: [fa, fb],
+      constraints: [{ id: 'c1', name: 'chk_rule', kind: 'CHECK', expression: 'a < b' }],
+    });
+    const after = table({
+      id: 't1', name: 't', fields: [fa, fb],
+      constraints: [{ id: 'c1', name: 'chk_rule', kind: 'CHECK', expression: 'a <= b' }],
+    });
+    const diff = computeSchemaDiff(project({ tables: [before] }), project({ tables: [after] }));
+    const mod = diff.tables.modified[0];
+    expect(mod.tableConstraintsDropped).toEqual([{ name: 'chk_rule' }]);
+    expect(mod.tableConstraintsAdded[0].resolvedName).toBe('chk_rule');
+    const sql = flattenDiffSql(renderDiffSql(diff, [], [after]));
+    const dropIdx = sql.findIndex(s => s.includes('DROP CONSTRAINT IF EXISTS "chk_rule"'));
+    const addIdx = sql.findIndex(s => s.includes('ADD CONSTRAINT "chk_rule" CHECK (a <= b)'));
+    expect(dropIdx).toBeGreaterThanOrEqual(0);
+    expect(addIdx).toBeGreaterThan(dropIdx);
+  });
+
+  it('new table with table-level constraint inlines it into CREATE TABLE (no separate ALTER)', () => {
+    const fa = field({ id: 'fa', name: 'a', type: 'INTEGER' });
+    const fb = field({ id: 'fb', name: 'b', type: 'INTEGER' });
+    const newTable = table({
+      id: 't1', name: 't', fields: [fa, fb],
+      constraints: [{ id: 'c1', name: 'uq_ab', kind: 'UNIQUE', fieldIds: ['fa', 'fb'] }],
+    });
+    const diff = computeSchemaDiff(project(), project({ tables: [newTable] }));
+    const sql = flattenDiffSql(renderDiffSql(diff, [], [newTable]));
+    // 应该内联在 CREATE TABLE 内
+    expect(sql[0]).toContain('CREATE TABLE "public"."t"');
+    expect(sql[0]).toContain('CONSTRAINT "uq_ab" UNIQUE ("a", "b")');
+    // 不应再出现独立 ALTER ADD CONSTRAINT
+    expect(sql.filter(s => s.includes('ADD CONSTRAINT "uq_ab"'))).toHaveLength(0);
+  });
+
   it('countDiffChanges aggregates additions/drops/modifications', () => {
     const before = table({
       id: 't1', name: 'users',

@@ -195,6 +195,42 @@ describe('schemaImporter', () => {
     expect(t.indexes[0].fieldIds).toHaveLength(2);
   });
 
+  it('表级 UNIQUE / CHECK 约束被映射到 TableConstraint[]', () => {
+    const data: InspectData = {
+      enums: [],
+      tables: [
+        {
+          name: 'events',
+          schema: 'public',
+          comment: null,
+          columns: [
+            col({ name: 'start_date', type: 'date', ordinalPosition: 1 }),
+            col({ name: 'end_date', type: 'date', ordinalPosition: 2 }),
+            col({ name: 'owner_id', type: 'bigint', ordinalPosition: 3 }),
+            col({ name: 'slug', type: 'text', ordinalPosition: 4 }),
+          ],
+          foreignKeys: [],
+          indexes: [],
+          constraints: [
+            { name: 'uq_owner_slug', kind: 'UNIQUE', columns: ['owner_id', 'slug'] },
+            { name: 'chk_dates', kind: 'CHECK', expression: 'start_date < end_date' },
+          ],
+        },
+      ],
+    };
+    const t = inspectionToProject(data, 'x').tables[0];
+    expect(t.constraints).toHaveLength(2);
+    const uq = t.constraints!.find(c => c.name === 'uq_owner_slug')!;
+    expect(uq.kind).toBe('UNIQUE');
+    expect(uq.fieldIds).toHaveLength(2);
+    const ownerField = t.fields.find(f => f.name === 'owner_id')!;
+    const slugField = t.fields.find(f => f.name === 'slug')!;
+    expect(uq.fieldIds).toEqual([ownerField.id, slugField.id]);
+    const chk = t.constraints!.find(c => c.name === 'chk_dates')!;
+    expect(chk.kind).toBe('CHECK');
+    expect(chk.expression).toBe('start_date < end_date');
+  });
+
   it('注释与可空被保留', () => {
     const data: InspectData = {
       enums: [],

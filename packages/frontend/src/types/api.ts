@@ -54,6 +54,14 @@ export interface ApiDbTable {
   columns: ApiDbColumn[];
   foreignKeys: ApiDbForeignKey[];
   indexes: ApiDbIndex[];
+  constraints?: ApiDbTableConstraint[];
+}
+
+export interface ApiDbTableConstraint {
+  name: string;
+  kind: 'UNIQUE' | 'CHECK';
+  columns?: string[];       // UNIQUE：列序固定（按 conkey 顺序）
+  expression?: string;      // CHECK：剥去外层 CHECK(...) 后的表达式
 }
 
 export interface ApiDbColumn {

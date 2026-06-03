@@ -5,8 +5,10 @@ import type {
   EnumType,
   IndexDefinition,
   FkAction,
+  TableConstraint,
 } from '@/types/schema';
 import { typeHasLength, typeHasPrecision } from './typeDefinitions';
+import { renderTableConstraintInline, resolveConstraintName } from './sqlGenerator';
 
 // ==================== 基础工具（与 sqlGenerator 同源，重复以避免循环依赖） ====================
 
@@ -132,6 +134,14 @@ export interface FieldChange {
   }>;
 }
 
+export interface TableConstraintChange {
+  /** target 端的 TableDefinition；在 ALTER 渲染时用来引用 fields */
+  table: TableDefinition;
+  constraint: TableConstraint;
+  /** 缺省名时由 resolveConstraintName 推断；diff key 用这个 */
+  resolvedName: string;
+}
+
 export interface TableModification {
   schema: string;
   name: string;
@@ -142,6 +152,8 @@ export interface TableModification {
   fksDropped: NormalizedFk[];
   indexesAdded: NormalizedIndex[];
   indexesDropped: NormalizedIndex[];
+  tableConstraintsAdded: TableConstraintChange[];
+  tableConstraintsDropped: { name: string }[];
   commentChanged: { from: string | null; to: string | null } | null;
   pkChanged: { from: string[]; to: string[] } | null;
 }
@@ -229,9 +241,22 @@ function modificationIsEmpty(m: TableModification): boolean {
     m.fksDropped.length === 0 &&
     m.indexesAdded.length === 0 &&
     m.indexesDropped.length === 0 &&
+    m.tableConstraintsAdded.length === 0 &&
+    m.tableConstraintsDropped.length === 0 &&
     !m.commentChanged &&
     !m.pkChanged
   );
+}
+
+/** 把一个 TableConstraint 规范化为可比较的字符串签名（用来判定"同名但定义变更"）*/
+function constraintSignature(c: TableConstraint, table: TableDefinition): string {
+  if (c.kind === 'UNIQUE') {
+    const cols = (c.fieldIds ?? [])
+      .map(id => table.fields.find(f => f.id === id)?.name ?? '?')
+      .join(',');
+    return `UNIQUE(${cols})`;
+  }
+  return `CHECK(${(c.expression ?? '').trim()})`;
 }
 
 function diffTable(
@@ -321,6 +346,32 @@ function diffTable(
     indexesAdded.push(tIdx);
   }
 
+  // 表级约束：按 resolvedName 匹配；同名定义不同 → drop + add
+  const curConstraints = cur.constraints ?? [];
+  const tgtConstraints = tgt.constraints ?? [];
+  const curConstraintMap = new Map(
+    curConstraints.map(c => [resolveConstraintName(c, cur), { c, sig: constraintSignature(c, cur) }])
+  );
+  const tgtConstraintMap = new Map(
+    tgtConstraints.map(c => [resolveConstraintName(c, tgt), { c, sig: constraintSignature(c, tgt) }])
+  );
+
+  const tableConstraintsAdded: TableConstraintChange[] = [];
+  const tableConstraintsDropped: { name: string }[] = [];
+
+  for (const [name, { c, sig }] of tgtConstraintMap) {
+    const curEntry = curConstraintMap.get(name);
+    if (!curEntry) {
+      tableConstraintsAdded.push({ table: tgt, constraint: c, resolvedName: name });
+    } else if (curEntry.sig !== sig) {
+      tableConstraintsDropped.push({ name });
+      tableConstraintsAdded.push({ table: tgt, constraint: c, resolvedName: name });
+    }
+  }
+  for (const [name] of curConstraintMap) {
+    if (!tgtConstraintMap.has(name)) tableConstraintsDropped.push({ name });
+  }
+
   // 表注释
   const curComment = cur.comment?.trim() ? cur.comment.trim() : null;
   const tgtComment = tgt.comment?.trim() ? tgt.comment.trim() : null;
@@ -337,6 +388,8 @@ function diffTable(
     fksDropped,
     indexesAdded,
     indexesDropped,
+    tableConstraintsAdded,
+    tableConstraintsDropped,
     commentChanged,
     pkChanged,
   };
@@ -446,6 +499,10 @@ export function renderDiffSql(
     for (const fk of m.fksDropped) {
       sections.alters.push(`ALTER TABLE ${qname} DROP CONSTRAINT IF EXISTS ${quoteIdent(fk.constraintName)};`);
     }
+    // 1b) drop 表级约束（UNIQUE / CHECK）— 同样用 IF EXISTS 兜底
+    for (const tc of m.tableConstraintsDropped) {
+      sections.alters.push(`ALTER TABLE ${qname} DROP CONSTRAINT IF EXISTS ${quoteIdent(tc.name)};`);
+    }
     // 2) drop index
     for (const idx of m.indexesDropped) {
       sections.alters.push(`DROP INDEX IF EXISTS ${qualified(m.schema, idx.name)};`);
@@ -480,6 +537,11 @@ export function renderDiffSql(
     // 7) add FK
     for (const fk of m.fksAdded) {
       sections.alters.push(renderAddForeignKey(m.schema, m.name, fk));
+    }
+    // 7b) add 表级约束
+    for (const tc of m.tableConstraintsAdded) {
+      const line = renderTableConstraintInline({ ...tc.constraint, name: tc.resolvedName }, tc.table);
+      if (line) sections.alters.push(`ALTER TABLE ${qname} ADD ${line};`);
     }
     // 8) add index
     for (const idx of m.indexesAdded) {
@@ -584,6 +646,12 @@ function renderCreateTableBlock(table: TableDefinition, enums: EnumType[]): stri
   if (pkFields.length > 0) {
     colLines.push(`  PRIMARY KEY (${pkFields.map(f => quoteIdent(f.name)).join(', ')})`);
   }
+  // 表级约束（UNIQUE / CHECK）内联在 CREATE TABLE 末尾
+  for (const c of table.constraints ?? []) {
+    const name = resolveConstraintName(c, table);
+    const line = renderTableConstraintInline({ ...c, name }, table);
+    if (line) colLines.push(`  ${line}`);
+  }
   out.push(`CREATE TABLE ${qualified(table.schema, table.name)} (\n${colLines.join(',\n')}\n);`);
 
   // 注意：FK 不在此处生成。renderDiffSql 会在所有 CREATE TABLE 之后用完整 target.tables 统一追加，
@@ -654,8 +722,8 @@ export function countDiffChanges(diff: SchemaDiff): {
   let dropped = diff.enums.dropped.length + diff.tables.dropped.length;
   let modified = diff.enums.valuesAdded.length;
   for (const m of diff.tables.modified) {
-    added += m.columnsAdded.length + m.fksAdded.length + m.indexesAdded.length;
-    dropped += m.columnsDropped.length + m.fksDropped.length + m.indexesDropped.length;
+    added += m.columnsAdded.length + m.fksAdded.length + m.indexesAdded.length + m.tableConstraintsAdded.length;
+    dropped += m.columnsDropped.length + m.fksDropped.length + m.indexesDropped.length + m.tableConstraintsDropped.length;
     modified += m.columnsModified.length + (m.commentChanged ? 1 : 0) + (m.pkChanged ? 1 : 0);
   }
   return { added, dropped, modified };

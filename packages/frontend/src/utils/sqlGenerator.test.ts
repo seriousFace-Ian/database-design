@@ -402,3 +402,107 @@ describe('标识符转义', () => {
     expect(ddl).toContain('"a""b"');
   });
 });
+
+// ==================== 表级约束（Phase 7） ====================
+
+describe('表级约束', () => {
+  it('UNIQUE(a,b) 内联在 CREATE TABLE 末尾，使用提供的约束名', () => {
+    const fa = field({ id: 'fa', name: 'team_id', type: 'BIGINT', nullable: false });
+    const fb = field({ id: 'fb', name: 'user_id', type: 'BIGINT', nullable: false });
+    const p = project({
+      tables: [
+        table({
+          name: 'team_members',
+          fields: [fa, fb],
+          constraints: [
+            { id: 'c1', name: 'uq_team_user', kind: 'UNIQUE', fieldIds: ['fa', 'fb'] },
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    expect(ddl).toContain('CONSTRAINT "uq_team_user" UNIQUE ("team_id", "user_id")');
+  });
+
+  it('CHECK 跨列表达式按原样内联', () => {
+    const fa = field({ id: 'fa', name: 'start_date', type: 'DATE' });
+    const fb = field({ id: 'fb', name: 'end_date', type: 'DATE' });
+    const p = project({
+      tables: [
+        table({
+          name: 'events',
+          fields: [fa, fb],
+          constraints: [
+            { id: 'c1', name: 'chk_dates', kind: 'CHECK', expression: 'start_date < end_date' },
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    expect(ddl).toContain('CONSTRAINT "chk_dates" CHECK (start_date < end_date)');
+  });
+
+  it('约束名缺失时自动生成 uq_/chk_ 前缀', () => {
+    const fa = field({ id: 'fa', name: 'a', type: 'INTEGER' });
+    const fb = field({ id: 'fb', name: 'b', type: 'INTEGER' });
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [fa, fb],
+          constraints: [
+            { id: 'c1', kind: 'UNIQUE', fieldIds: ['fa', 'fb'] },
+            { id: 'c2', kind: 'CHECK', expression: 'a < b' },
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    expect(ddl).toContain('CONSTRAINT "uq_t_a_b" UNIQUE ("a", "b")');
+    // CHECK 用哈希后缀，匹配前缀即可
+    expect(ddl).toMatch(/CONSTRAINT "chk_t_[a-z0-9]+" CHECK \(a < b\)/);
+  });
+
+  it('与列定义、PRIMARY KEY、列级 CHECK 共存且顺序正确', () => {
+    const fid = field({ id: 'fid', name: 'id', type: 'BIGSERIAL', isPrimaryKey: true, nullable: false });
+    const fa = field({ id: 'fa', name: 'a', type: 'INTEGER', checkConstraint: 'a >= 0' });
+    const fb = field({ id: 'fb', name: 'b', type: 'INTEGER' });
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [fid, fa, fb],
+          constraints: [
+            { id: 'c1', kind: 'UNIQUE', fieldIds: ['fa', 'fb'] },
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    // 列内联 CHECK
+    expect(ddl).toContain('"a" INTEGER CHECK (a >= 0)');
+    // PRIMARY KEY 在表级约束之前
+    const pkIdx = ddl.indexOf('PRIMARY KEY ("id")');
+    const uqIdx = ddl.indexOf('CONSTRAINT "uq_t_a_b"');
+    expect(pkIdx).toBeGreaterThanOrEqual(0);
+    expect(uqIdx).toBeGreaterThan(pkIdx);
+  });
+
+  it('引用不存在 fieldId 的 UNIQUE 被跳过，CHECK 表达式为空被跳过', () => {
+    const fa = field({ id: 'fa', name: 'a', type: 'INTEGER' });
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [fa],
+          constraints: [
+            { id: 'c1', kind: 'UNIQUE', fieldIds: ['nonexistent'] },
+            { id: 'c2', kind: 'CHECK', expression: '   ' },
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    expect(ddl).not.toContain('CONSTRAINT');
+  });
+});

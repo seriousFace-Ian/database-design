@@ -75,6 +75,19 @@ export interface IndexDefinition {
   indexType?: IndexType;
 }
 
+// ==================== 表级约束 ====================
+
+export type TableConstraintKind = 'UNIQUE' | 'CHECK';
+
+export interface TableConstraint {
+  id: string;
+  name?: string;             // CONSTRAINT <name>，省略时由生成器构造 uq_/chk_ 前缀名
+  kind: TableConstraintKind;
+  fieldIds?: string[];       // UNIQUE 必填（至少 2 列）；CHECK 选填，仅作 UI 关联元信息
+  expression?: string;       // CHECK 必填，不含 CHECK 关键字与外层括号
+  comment?: string;
+}
+
 // ==================== 表定义 ====================
 
 export interface TableDefinition {
@@ -84,6 +97,7 @@ export interface TableDefinition {
   comment?: string;
   fields: FieldDefinition[];
   indexes: IndexDefinition[];
+  constraints?: TableConstraint[]; // 表级 UNIQUE / CHECK；旧 JSON 缺失时视作 []
   position?: { x: number; y: number };
   createdAt: string;
   updatedAt: string;

@@ -7,6 +7,7 @@ import type {
   FieldDefinition,
   EnumType,
   IndexDefinition,
+  TableConstraint,
 } from '@/types/schema';
 
 const DEFAULT_FIELD: Omit<FieldDefinition, 'id' | 'order'> = {
@@ -82,6 +83,11 @@ interface ProjectState {
   // 索引操作
   addIndex: (tableId: string, index: Omit<IndexDefinition, 'id'>) => void;
   deleteIndex: (tableId: string, indexId: string) => void;
+
+  // 表级约束操作（UNIQUE / CHECK）
+  addTableConstraint: (tableId: string, constraint: Omit<TableConstraint, 'id'>) => string;
+  updateTableConstraint: (tableId: string, constraintId: string, changes: Partial<Omit<TableConstraint, 'id'>>) => void;
+  deleteTableConstraint: (tableId: string, constraintId: string) => void;
 
   // ENUM 操作
   addEnum: (enumDef: Omit<EnumType, 'id'>) => string;
@@ -338,6 +344,70 @@ export const useProjectStore = create<ProjectState>()(
             tables: project.tables.map(t =>
               t.id === tableId
                 ? { ...t, indexes: t.indexes.filter(i => i.id !== indexId), updatedAt: now() }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      addTableConstraint: (tableId, constraint) => {
+        const { project } = get();
+        if (!project) return '';
+        const id = uuidv4();
+        const newConstraint: TableConstraint = { ...constraint, id };
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? { ...t, constraints: [...(t.constraints ?? []), newConstraint], updatedAt: now() }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+        return id;
+      },
+
+      updateTableConstraint: (tableId, constraintId, changes) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? {
+                    ...t,
+                    constraints: (t.constraints ?? []).map(c =>
+                      c.id === constraintId ? { ...c, ...changes } : c
+                    ),
+                    updatedAt: now(),
+                  }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      deleteTableConstraint: (tableId, constraintId) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? {
+                    ...t,
+                    constraints: (t.constraints ?? []).filter(c => c.id !== constraintId),
+                    updatedAt: now(),
+                  }
                 : t
             ),
             updatedAt: now(),
