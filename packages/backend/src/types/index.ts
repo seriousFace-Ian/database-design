@@ -42,9 +42,16 @@ export interface DbTable {
 
 export interface DbTableConstraint {
   name: string;
-  kind: 'UNIQUE' | 'CHECK';
+  kind: 'UNIQUE' | 'CHECK' | 'EXCLUDE';
   columns?: string[];      // UNIQUE
   expression?: string;     // CHECK，已剥外层 CHECK(...)
+
+  // EXCLUDE 专用（Phase 8）
+  exclusionUsing?: string;                          // 索引方法 (gist/spgist/btree/hash)
+  exclusionElements?: { column?: string; expression?: string; operator: string }[];
+  exclusionWhere?: string;
+  exclusionDeferrable?: boolean;
+  exclusionInitiallyDeferred?: boolean;
 }
 
 export interface DbColumn {
@@ -52,6 +59,9 @@ export interface DbColumn {
   type: string;
   nullable: boolean;
   defaultValue: string | null;
+  /** Phase 8：IDENTITY 列识别 */
+  isIdentity?: boolean;
+  identityGeneration?: 'ALWAYS' | 'BY DEFAULT';
   isPrimaryKey: boolean;
   isUnique: boolean;
   comment: string | null;
@@ -68,11 +78,28 @@ export interface DbForeignKey {
   onUpdate: string;
 }
 
+export interface DbIndexColumn {
+  /** 字段名；表达式列时为 null */
+  column: string | null;
+  /** 字段为 null 时，原始表达式片段（如 LOWER(name)） */
+  expression?: string;
+  direction?: 'ASC' | 'DESC';
+  opclass?: string;
+  nulls?: 'FIRST' | 'LAST';
+}
+
 export interface DbIndex {
   name: string;
+  /** 兼容旧用法：纯字段索引时与 columnsDetail 的 column 字段一致 */
   columns: string[];
+  /** 结构化列定义（Phase 8）；表达式索引与 opclass 通过此处携带 */
+  columnsDetail?: DbIndexColumn[];
   isUnique: boolean;
   indexType: string;
+  /** 部分索引 WHERE 子句（不含 WHERE 关键字） */
+  predicate?: string;
+  /** 复杂索引退化时保留 pg_get_indexdef 完整原文，前端直接重放 */
+  rawDefinition?: string;
 }
 
 export interface DbEnum {

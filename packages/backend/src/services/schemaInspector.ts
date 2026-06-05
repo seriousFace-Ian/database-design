@@ -1,6 +1,16 @@
 import { Pool } from 'pg';
 import { createPool } from './pgClient';
-import { DbConnectionConfig, DbTable, DbColumn, DbForeignKey, DbIndex, DbEnum, DbTableConstraint, InspectSchemaResponse } from '../types';
+import {
+  DbConnectionConfig,
+  DbTable,
+  DbColumn,
+  DbForeignKey,
+  DbIndex,
+  DbIndexColumn,
+  DbEnum,
+  DbTableConstraint,
+  InspectSchemaResponse,
+} from '../types';
 
 export async function inspectSchema(
   config: DbConnectionConfig,
@@ -21,7 +31,6 @@ export async function inspectSchema(
 async function fetchTables(pool: Pool, schemas: string[]): Promise<DbTable[]> {
   const schemaPlaceholders = schemas.map((_, i) => `$${i + 1}`).join(', ');
 
-  // 获取表列表
   const tablesResult = await pool.query<{ table_name: string; table_schema: string; comment: string | null }>(
     `SELECT c.table_name, c.table_schema,
             obj_description(pgc.oid) as comment
@@ -59,11 +68,12 @@ async function fetchTables(pool: Pool, schemas: string[]): Promise<DbTable[]> {
 }
 
 /**
- * 抓取表级 UNIQUE / CHECK 约束。
+ * 抓取表级 UNIQUE / CHECK / EXCLUDE 约束。
  * 排除规则：
  *   - 单列 UNIQUE：已由列级 isUnique 表达，避免重复
  *   - 单列且表达式仅引用本列的 CHECK：已由列级 checkConstraint 表达
  *   - PG 自动产生的 `*_not_null` CHECK：忽略
+ *   - EXCLUDE：保留，并解析 USING / elements / WHERE / DEFERRABLE
  */
 async function fetchTableConstraints(
   pool: Pool,
@@ -72,9 +82,12 @@ async function fetchTableConstraints(
 ): Promise<DbTableConstraint[]> {
   const result = await pool.query<{
     name: string;
-    kind: string;       // 'u' | 'c'
-    def: string;        // pg_get_constraintdef 的全文，如 "UNIQUE (a, b)" 或 "CHECK ((col >= 0))"
+    kind: string; // 'u' | 'c' | 'x'
+    def: string;
     columns: (string | null)[] | null;
+    deferrable: boolean;
+    initially_deferred: boolean;
+    index_method: string | null;
   }>(
     `SELECT
        con.conname AS name,
@@ -84,12 +97,17 @@ async function fetchTableConstraints(
          SELECT array_agg(att.attname ORDER BY u.ord)
          FROM unnest(con.conkey) WITH ORDINALITY AS u(attnum, ord)
          JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = u.attnum
-       ) AS columns
+       ) AS columns,
+       con.condeferrable AS deferrable,
+       con.condeferred  AS initially_deferred,
+       am.amname        AS index_method
      FROM pg_constraint con
      JOIN pg_class rel ON rel.oid = con.conrelid
      JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+     LEFT JOIN pg_class idx ON idx.oid = con.conindid
+     LEFT JOIN pg_am    am  ON am.oid  = idx.relam
      WHERE ns.nspname = $1 AND rel.relname = $2
-       AND con.contype IN ('u', 'c')
+       AND con.contype IN ('u', 'c', 'x')
      ORDER BY con.conname`,
     [schema, table]
   );
@@ -98,24 +116,108 @@ async function fetchTableConstraints(
   for (const row of result.rows) {
     const cols = (row.columns ?? []).filter((c): c is string => !!c);
     if (row.kind === 'u') {
-      // 单列 UNIQUE 走列级，跳过
-      if (cols.length < 2) continue;
+      if (cols.length < 2) continue; // 单列 UNIQUE 走列级
       out.push({ name: row.name, kind: 'UNIQUE', columns: cols });
       continue;
     }
-    // CHECK：剥外层 "CHECK (...)"，保留内部表达式（可能含外层括号，由 PG 输出决定）
-    const m = row.def.match(/^CHECK\s*\((.*)\)\s*$/i);
-    const expr = (m ? m[1] : row.def).trim();
-    // 排除 PG 自动给 NOT NULL 列生成的 *_not_null CHECK
-    if (/^\w+ IS NOT NULL$/i.test(expr)) continue;
-    // 单列且表达式只引用该列 → 已被列级 checkConstraint 表达
-    if (cols.length === 1) {
-      const col = cols[0];
-      const onlyRefsCol = new RegExp(`^[^a-zA-Z_]*\\(*\\s*"?${escapeRegex(col)}"?\\b`).test(expr);
-      if (onlyRefsCol && !mentionsOtherIdentifiers(expr, col)) continue;
+    if (row.kind === 'c') {
+      const m = row.def.match(/^CHECK\s*\((.*)\)\s*$/i);
+      const expr = (m ? m[1] : row.def).trim();
+      if (/^\w+ IS NOT NULL$/i.test(expr)) continue;
+      if (cols.length === 1) {
+        const col = cols[0];
+        const onlyRefsCol = new RegExp(`^[^a-zA-Z_]*\\(*\\s*"?${escapeRegex(col)}"?\\b`).test(expr);
+        if (onlyRefsCol && !mentionsOtherIdentifiers(expr, col)) continue;
+      }
+      out.push({ name: row.name, kind: 'CHECK', expression: expr });
+      continue;
     }
-    out.push({ name: row.name, kind: 'CHECK', expression: expr });
+    // kind === 'x' — EXCLUDE
+    const parsed = parseExclusionDef(row.def);
+    out.push({
+      name: row.name,
+      kind: 'EXCLUDE',
+      exclusionUsing: (parsed.using ?? row.index_method ?? 'gist').toUpperCase(),
+      exclusionElements: parsed.elements,
+      exclusionWhere: parsed.where,
+      exclusionDeferrable: row.deferrable,
+      exclusionInitiallyDeferred: row.initially_deferred,
+    });
   }
+  return out;
+}
+
+interface ParsedExclusion {
+  using?: string;
+  elements: { column?: string; expression?: string; operator: string }[];
+  where?: string;
+}
+
+/**
+ * 解析 pg_get_constraintdef 返回的 EXCLUDE 定义字符串。形如：
+ *   EXCLUDE USING gist (room_id WITH =, during WITH &&) WHERE (active)
+ * 复杂情形（表达式元素）退化为单元素 expression。
+ */
+function parseExclusionDef(def: string): ParsedExclusion {
+  const usingMatch = def.match(/EXCLUDE\s+USING\s+(\w+)\s*\(/i);
+  const using = usingMatch?.[1];
+  const headIdx = def.indexOf('(', usingMatch?.index ?? 0);
+  if (headIdx < 0) {
+    return { using, elements: [{ expression: def, operator: '=' }] };
+  }
+  const { body, end } = extractBalanced(def, headIdx);
+  const tail = def.slice(end + 1);
+  const whereMatch = tail.match(/WHERE\s*\((.*)\)/is);
+  const where = whereMatch?.[1]?.trim();
+
+  const elements = splitTopLevel(body, ',').map(part => parseExclusionElement(part.trim()));
+  return { using, elements, where };
+}
+
+function parseExclusionElement(piece: string): { column?: string; expression?: string; operator: string } {
+  // 从右往左匹配 ` WITH op`
+  const m = piece.match(/^(.*)\sWITH\s+(\S+)\s*$/is);
+  if (!m) return { expression: piece, operator: '=' };
+  const head = m[1].trim();
+  const operator = m[2].trim();
+  // 简单字段名（可带引号）：identifier 或 "identifier"
+  const ident = head.match(/^"([^"]+)"$|^([a-zA-Z_][a-zA-Z0-9_]*)$/);
+  if (ident) {
+    return { column: ident[1] ?? ident[2], operator };
+  }
+  return { expression: head, operator };
+}
+
+/** 从给定 `(` 位置开始匹配到对应的 `)`，返回内部子串和结束下标 */
+function extractBalanced(s: string, openIdx: number): { body: string; end: number } {
+  let depth = 0;
+  for (let i = openIdx; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth === 0) return { body: s.slice(openIdx + 1, i), end: i };
+    }
+  }
+  return { body: s.slice(openIdx + 1), end: s.length - 1 };
+}
+
+/** 在顶层（不进入括号）上按 sep 切分 */
+function splitTopLevel(s: string, sep: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let buf = '';
+  for (const ch of s) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === sep && depth === 0) {
+      out.push(buf);
+      buf = '';
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf) out.push(buf);
   return out;
 }
 
@@ -123,7 +225,6 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** 粗略判断表达式中除了已知列之外是否还引用了其他标识符 */
 function mentionsOtherIdentifiers(expr: string, knownCol: string): boolean {
   const KW = new Set([
     'AND', 'OR', 'NOT', 'IS', 'NULL', 'TRUE', 'FALSE',
@@ -139,6 +240,8 @@ async function fetchColumns(pool: Pool, schema: string, table: string): Promise<
     data_type: string;
     is_nullable: string;
     column_default: string | null;
+    is_identity: string;          // 'YES' / 'NO'
+    identity_generation: string | null; // 'ALWAYS' / 'BY DEFAULT'
     is_primary_key: boolean;
     is_unique: boolean;
     comment: string | null;
@@ -157,6 +260,8 @@ async function fetchColumns(pool: Pool, schema: string, table: string): Promise<
        END as data_type,
        c.is_nullable,
        c.column_default,
+       c.is_identity,
+       c.identity_generation,
        COALESCE(pk.is_pk, false) as is_primary_key,
        COALESCE(uq.is_unique, false) as is_unique,
        pg_catalog.col_description(pgc.oid, c.ordinal_position) as comment,
@@ -173,10 +278,6 @@ async function fetchColumns(pool: Pool, schema: string, table: string): Promise<
          AND tc.table_schema = $1 AND tc.table_name = $2
      ) pk ON pk.column_name = c.column_name
      LEFT JOIN (
-       -- 仅标记“单列 UNIQUE 约束”的列：is_unique 表示列级唯一。
-       -- 复合 UNIQUE (a, b) 不应让 a、b 各自变成单列唯一，
-       -- 否则导入后 SQL 生成器会输出列级 UNIQUE，改变约束语义。
-       -- 复合唯一保留在索引中（pg_index 的复合唯一索引），不进入此处。
        SELECT column_name, true as is_unique
        FROM (
          SELECT ku.column_name,
@@ -199,6 +300,13 @@ async function fetchColumns(pool: Pool, schema: string, table: string): Promise<
     type: row.data_type,
     nullable: row.is_nullable === 'YES',
     defaultValue: row.column_default,
+    isIdentity: row.is_identity === 'YES',
+    identityGeneration:
+      row.identity_generation === 'ALWAYS'
+        ? 'ALWAYS'
+        : row.identity_generation === 'BY DEFAULT'
+          ? 'BY DEFAULT'
+          : undefined,
     isPrimaryKey: row.is_primary_key,
     isUnique: row.is_unique,
     comment: row.comment,
@@ -247,36 +355,105 @@ async function fetchForeignKeys(pool: Pool, schema: string, table: string): Prom
   }));
 }
 
+/**
+ * 索引抓取（Phase 8）：使用 pg_get_indexdef 还原文本，简单列引用解析为 column+direction；
+ * 表达式列/opclass 整体退化为 expression。被 EXCLUDE 约束 / PK / UNIQUE 约束实现的底层索引一律跳过。
+ */
 async function fetchIndexes(pool: Pool, schema: string, table: string): Promise<DbIndex[]> {
   const result = await pool.query<{
-    index_name: string;
-    column_names: string[];
+    name: string;
     is_unique: boolean;
     index_type: string;
+    definition: string;
+    predicate: string | null;
   }>(
     `SELECT
-       i.relname as index_name,
-       array_agg(a.attname ORDER BY ix.indkey) as column_names,
-       ix.indisunique as is_unique,
-       am.amname as index_type
+       c.relname                                AS name,
+       ix.indisunique                           AS is_unique,
+       am.amname                                AS index_type,
+       pg_get_indexdef(ix.indexrelid, 0, true)  AS definition,
+       pg_get_expr(ix.indpred, ix.indrelid, true) AS predicate
      FROM pg_index ix
-     JOIN pg_class i ON i.oid = ix.indexrelid
-     JOIN pg_class t ON t.oid = ix.indrelid
+     JOIN pg_class c    ON c.oid = ix.indexrelid
+     JOIN pg_class t    ON t.oid = ix.indrelid
      JOIN pg_namespace n ON n.oid = t.relnamespace
-     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
-     JOIN pg_am am ON am.oid = i.relam
+     JOIN pg_am am      ON am.oid = c.relam
      WHERE n.nspname = $1 AND t.relname = $2
        AND NOT ix.indisprimary
-     GROUP BY i.relname, ix.indisunique, am.amname`,
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_constraint con
+         WHERE con.conindid = ix.indexrelid AND con.contype IN ('p', 'u', 'x')
+       )
+     ORDER BY c.relname`,
     [schema, table]
   );
 
-  return result.rows.map(row => ({
-    name: row.index_name,
-    columns: row.column_names,
-    isUnique: row.is_unique,
-    indexType: row.index_type.toUpperCase(),
-  }));
+  return result.rows.map(row => {
+    const parsed = parseIndexDef(row.definition);
+    return {
+      name: row.name,
+      isUnique: row.is_unique,
+      indexType: row.index_type.toUpperCase(),
+      predicate: row.predicate ?? undefined,
+      columns: parsed.columns.map(c => c.column ?? '').filter(Boolean),
+      columnsDetail: parsed.columns,
+      rawDefinition: row.definition,
+    };
+  });
+}
+
+interface ParsedIndexDef {
+  columns: DbIndexColumn[];
+}
+
+/**
+ * 解析 pg_get_indexdef，例如：
+ *   CREATE INDEX idx_x ON public.t USING btree (a, b DESC) WHERE (deleted_at IS NULL)
+ *   CREATE INDEX idx_y ON public.t USING gin (content jsonb_path_ops)
+ *   CREATE INDEX idx_z ON public.t USING btree (lower(name))
+ * 简单列引用 → column+direction；其他 → expression。
+ */
+function parseIndexDef(def: string): ParsedIndexDef {
+  const openIdx = def.indexOf('(', def.search(/USING\s+\w+/i));
+  if (openIdx < 0) return { columns: [] };
+  const { body } = extractBalanced(def, openIdx);
+  const parts = splitTopLevel(body, ',').map(p => p.trim());
+  const columns: DbIndexColumn[] = parts.map(parseIndexElement);
+  return { columns };
+}
+
+function parseIndexElement(raw: string): DbIndexColumn {
+  let work = raw.trim();
+  // 提取 DESC/ASC 和 NULLS FIRST/LAST 后缀
+  let direction: 'ASC' | 'DESC' | undefined;
+  let nulls: 'FIRST' | 'LAST' | undefined;
+  const nullsMatch = work.match(/\bNULLS\s+(FIRST|LAST)\s*$/i);
+  if (nullsMatch) {
+    nulls = nullsMatch[1].toUpperCase() as 'FIRST' | 'LAST';
+    work = work.slice(0, nullsMatch.index).trim();
+  }
+  const dirMatch = work.match(/\b(ASC|DESC)\s*$/i);
+  if (dirMatch) {
+    direction = dirMatch[1].toUpperCase() as 'ASC' | 'DESC';
+    work = work.slice(0, dirMatch.index).trim();
+  }
+  // 简单字段：identifier 或 "identifier"
+  const simple = work.match(/^"([^"]+)"$|^([a-zA-Z_][a-zA-Z0-9_]*)$/);
+  if (simple) {
+    return { column: simple[1] ?? simple[2], direction, nulls };
+  }
+  // 简单字段 + opclass：identifier opclass
+  const withOpclass = work.match(/^("([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+([a-zA-Z_][a-zA-Z0-9_]*)$/);
+  if (withOpclass) {
+    return {
+      column: withOpclass[2] ?? withOpclass[3],
+      opclass: withOpclass[4],
+      direction,
+      nulls,
+    };
+  }
+  // 其余整体作为表达式
+  return { column: null, expression: work, direction, nulls };
 }
 
 async function fetchEnums(pool: Pool, schemas: string[]): Promise<DbEnum[]> {
