@@ -274,7 +274,7 @@ describe('索引', () => {
     const idx: IndexDefinition = {
       id: 'i1',
       name: 'uq_a_b',
-      fieldIds: ['fa', 'fb'],
+      columns: [{ fieldId: 'fa' }, { fieldId: 'fb' }],
       isUnique: true,
     };
     const p = project({
@@ -295,7 +295,9 @@ describe('索引', () => {
       tables: [
         table({
           fields: [field({ id: 'fa', name: 'doc', type: 'JSONB' })],
-          indexes: [{ id: 'i1', name: 'gin_doc', fieldIds: ['fa'], isUnique: false, indexType: 'GIN' }],
+          indexes: [
+            { id: 'i1', name: 'gin_doc', columns: [{ fieldId: 'fa' }], isUnique: false, indexType: 'GIN' },
+          ],
         }),
       ],
     });
@@ -309,11 +311,382 @@ describe('索引', () => {
       tables: [
         table({
           fields: [field({ id: 'fa', name: 'a' })],
-          indexes: [{ id: 'i1', name: 'dead', fieldIds: ['gone'], isUnique: false }],
+          indexes: [{ id: 'i1', name: 'dead', columns: [{ fieldId: 'gone' }], isUnique: false }],
         }),
       ],
     });
     expect(generateDdlSections(p).indexes).toHaveLength(0);
+  });
+
+  it('多列 BTREE 含 DESC 与 ASC 方向（ASC 默认省略）', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 'models',
+          fields: [
+            field({ id: 'fa', name: 'sort_order', type: 'INTEGER' }),
+            field({ id: 'fb', name: 'id', type: 'BIGINT' }),
+          ],
+          indexes: [
+            {
+              id: 'i1',
+              name: 'idx_models_sort_order',
+              columns: [
+                { fieldId: 'fa', direction: 'ASC' },
+                { fieldId: 'fb', direction: 'ASC' },
+              ],
+              isUnique: false,
+            },
+          ],
+        }),
+      ],
+    });
+    // ASC 是默认值，不显式输出
+    expect(generateDdlSections(p).indexes[0]).toBe(
+      'CREATE INDEX "idx_models_sort_order" ON "public"."models" ("sort_order", "id");'
+    );
+  });
+
+  it('表达式索引：LOWER(name)', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 'models',
+          fields: [field({ id: 'fa', name: 'name', type: 'TEXT' })],
+          indexes: [
+            {
+              id: 'i1',
+              name: 'idx_models_name_lower',
+              columns: [{ expression: 'LOWER(name)' }],
+              isUnique: false,
+            },
+          ],
+        }),
+      ],
+    });
+    expect(generateDdlSections(p).indexes[0]).toBe(
+      'CREATE INDEX "idx_models_name_lower" ON "public"."models" (LOWER(name));'
+    );
+  });
+
+  it('GIN + opclass + 谓词组合输出', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 'conversation_messages',
+          fields: [field({ id: 'fc', name: 'content', type: 'JSONB' })],
+          indexes: [
+            {
+              id: 'i1',
+              name: 'idx_conversation_messages_content',
+              columns: [{ fieldId: 'fc', opclass: 'jsonb_path_ops' }],
+              isUnique: false,
+              indexType: 'GIN',
+            },
+          ],
+        }),
+      ],
+    });
+    expect(generateDdlSections(p).indexes[0]).toBe(
+      'CREATE INDEX "idx_conversation_messages_content" ON "public"."conversation_messages" USING GIN ("content" jsonb_path_ops);'
+    );
+  });
+
+  it('部分索引 WHERE 谓词', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 'models',
+          fields: [
+            field({ id: 'fa', name: 'enabled', type: 'BOOLEAN' }),
+            field({ id: 'fb', name: 'status', type: 'INTEGER' }),
+          ],
+          indexes: [
+            {
+              id: 'i1',
+              name: 'idx_models_visible',
+              columns: [{ fieldId: 'fa' }, { fieldId: 'fb' }],
+              isUnique: false,
+              predicate: 'deleted_at IS NULL',
+            },
+          ],
+        }),
+      ],
+    });
+    expect(generateDdlSections(p).indexes[0]).toBe(
+      'CREATE INDEX "idx_models_visible" ON "public"."models" ("enabled", "status") WHERE deleted_at IS NULL;'
+    );
+  });
+
+  it('UNIQUE 索引 + INCLUDE 覆盖列', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [
+            field({ id: 'fa', name: 'tenant_id', type: 'BIGINT' }),
+            field({ id: 'fb', name: 'email', type: 'TEXT' }),
+            field({ id: 'fc', name: 'display_name', type: 'TEXT' }),
+          ],
+          indexes: [
+            {
+              id: 'i1',
+              name: 'uq_t_tenant_email',
+              columns: [{ fieldId: 'fa' }, { fieldId: 'fb' }],
+              isUnique: true,
+              include: ['display_name'],
+            },
+          ],
+        }),
+      ],
+    });
+    expect(generateDdlSections(p).indexes[0]).toBe(
+      'CREATE UNIQUE INDEX "uq_t_tenant_email" ON "public"."t" ("tenant_id", "email") INCLUDE ("display_name");'
+    );
+  });
+
+  it('索引名为空时按 idx_/uq_<table>_<col> 自动命名', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 'models',
+          fields: [
+            field({ id: 'fa', name: 'enabled', type: 'BOOLEAN' }),
+            field({ id: 'fb', name: 'status', type: 'INTEGER' }),
+          ],
+          indexes: [
+            { id: 'i1', name: '', columns: [{ fieldId: 'fa' }, { fieldId: 'fb' }], isUnique: false },
+            { id: 'i2', name: '', columns: [{ fieldId: 'fa' }], isUnique: true },
+          ],
+        }),
+      ],
+    });
+    const out = generateDdlSections(p).indexes;
+    expect(out[0]).toContain('"idx_models_enabled_status"');
+    expect(out[1]).toContain('"uq_models_enabled"');
+  });
+});
+
+// ==================== IDENTITY 列 ====================
+
+describe('IDENTITY 列', () => {
+  it('BY DEFAULT AS IDENTITY 输出', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 'upload_tasks',
+          fields: [
+            field({ name: 'id', type: 'BIGINT', isPrimaryKey: true, nullable: false, identity: 'BY DEFAULT' }),
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    expect(ddl).toContain('"id" BIGINT GENERATED BY DEFAULT AS IDENTITY');
+  });
+
+  it('ALWAYS AS IDENTITY 输出', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [
+            field({ name: 'id', type: 'INTEGER', isPrimaryKey: true, nullable: false, identity: 'ALWAYS' }),
+          ],
+        }),
+      ],
+    });
+    expect(generateDdlSections(p).tables[0]).toContain(
+      '"id" INTEGER GENERATED ALWAYS AS IDENTITY'
+    );
+  });
+
+  it('IDENTITY 与 defaultValue 互斥（IDENTITY 优先输出，DEFAULT 被忽略）', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [
+            field({
+              name: 'id',
+              type: 'BIGINT',
+              isPrimaryKey: true,
+              nullable: false,
+              identity: 'BY DEFAULT',
+              defaultValue: '42',
+            }),
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    expect(ddl).toContain('GENERATED BY DEFAULT AS IDENTITY');
+    expect(ddl).not.toContain('DEFAULT 42');
+  });
+});
+
+// ==================== EXCLUDE 约束 ====================
+
+describe('EXCLUDE 约束', () => {
+  it('单元素 EXCLUDE USING GIST (col WITH =)', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [field({ id: 'fa', name: 'tag', type: 'TEXT' })],
+          constraints: [
+            {
+              id: 'c1',
+              name: 'ex_t_tag',
+              kind: 'EXCLUDE',
+              exclusionUsing: 'GIST',
+              exclusionElements: [{ fieldId: 'fa', operator: '=' }],
+            },
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    expect(ddl).toContain('CONSTRAINT "ex_t_tag" EXCLUDE USING GIST ("tag" WITH =)');
+  });
+
+  it('多元素混合操作符（room_id WITH =, during WITH &&）+ WHERE', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 'bookings',
+          fields: [
+            field({ id: 'fr', name: 'room_id', type: 'INTEGER' }),
+            field({ id: 'fd', name: 'during', type: 'TSTZRANGE' }),
+          ],
+          constraints: [
+            {
+              id: 'c1',
+              name: 'bookings_no_overlap',
+              kind: 'EXCLUDE',
+              exclusionUsing: 'GIST',
+              exclusionElements: [
+                { fieldId: 'fr', operator: '=' },
+                { fieldId: 'fd', operator: '&&' },
+              ],
+              exclusionWhere: 'active',
+            },
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    expect(ddl).toContain(
+      'CONSTRAINT "bookings_no_overlap" EXCLUDE USING GIST ("room_id" WITH =, "during" WITH &&) WHERE (active)'
+    );
+  });
+
+  it('表达式元素 (LOWER(name)) WITH =', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [field({ id: 'fa', name: 'name', type: 'TEXT' })],
+          constraints: [
+            {
+              id: 'c1',
+              name: 'ex_t_lower',
+              kind: 'EXCLUDE',
+              exclusionUsing: 'GIST',
+              exclusionElements: [{ expression: 'LOWER(name)', operator: '=' }],
+            },
+          ],
+        }),
+      ],
+    });
+    expect(generateDdlSections(p).tables[0]).toContain(
+      'CONSTRAINT "ex_t_lower" EXCLUDE USING GIST (LOWER(name) WITH =)'
+    );
+  });
+
+  it('DEFERRABLE INITIALLY DEFERRED 输出', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [field({ id: 'fa', name: 'x', type: 'INTEGER' })],
+          constraints: [
+            {
+              id: 'c1',
+              name: 'ex_t_x',
+              kind: 'EXCLUDE',
+              exclusionUsing: 'GIST',
+              exclusionElements: [{ fieldId: 'fa', operator: '=' }],
+              exclusionDeferrable: true,
+              exclusionInitiallyDeferred: true,
+            },
+          ],
+        }),
+      ],
+    });
+    expect(generateDdlSections(p).tables[0]).toContain(
+      'EXCLUDE USING GIST ("x" WITH =) DEFERRABLE INITIALLY DEFERRED'
+    );
+  });
+
+  it('约束名缺失时按 ex_<table>_<col>_<col> 自动命名', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 'bookings',
+          fields: [
+            field({ id: 'fr', name: 'room_id', type: 'INTEGER' }),
+            field({ id: 'fd', name: 'during', type: 'TSTZRANGE' }),
+          ],
+          constraints: [
+            {
+              id: 'c1',
+              kind: 'EXCLUDE',
+              exclusionUsing: 'GIST',
+              exclusionElements: [
+                { fieldId: 'fr', operator: '=' },
+                { fieldId: 'fd', operator: '&&' },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+    expect(generateDdlSections(p).tables[0]).toContain(
+      'CONSTRAINT "ex_bookings_room_id_during" EXCLUDE'
+    );
+  });
+
+  it('EXCLUDE 与同表 UNIQUE / CHECK 共存且按 constraints 顺序输出', () => {
+    const p = project({
+      tables: [
+        table({
+          name: 't',
+          fields: [
+            field({ id: 'fa', name: 'a', type: 'INTEGER' }),
+            field({ id: 'fb', name: 'b', type: 'INTEGER' }),
+          ],
+          constraints: [
+            { id: 'c1', name: 'uq_t_a_b', kind: 'UNIQUE', fieldIds: ['fa', 'fb'] },
+            { id: 'c2', name: 'chk_t_ab', kind: 'CHECK', expression: 'a < b' },
+            {
+              id: 'c3',
+              name: 'ex_t',
+              kind: 'EXCLUDE',
+              exclusionUsing: 'GIST',
+              exclusionElements: [{ fieldId: 'fa', operator: '=' }],
+            },
+          ],
+        }),
+      ],
+    });
+    const ddl = generateDdlSections(p).tables[0];
+    const uqIdx = ddl.indexOf('"uq_t_a_b"');
+    const chkIdx = ddl.indexOf('"chk_t_ab"');
+    const exIdx = ddl.indexOf('"ex_t"');
+    expect(uqIdx).toBeGreaterThan(0);
+    expect(chkIdx).toBeGreaterThan(uqIdx);
+    expect(exIdx).toBeGreaterThan(chkIdx);
   });
 });
 
@@ -347,7 +720,7 @@ describe('整体 DDL', () => {
           name: 'users',
           comment: '用户',
           fields: [field({ id: 'u_id', name: 'id', isPrimaryKey: true, nullable: false })],
-          indexes: [{ id: 'i1', name: 'idx_id', fieldIds: ['u_id'], isUnique: false }],
+          indexes: [{ id: 'i1', name: 'idx_id', columns: [{ fieldId: 'u_id' }], isUnique: false }],
         }),
         table({
           id: 'posts',

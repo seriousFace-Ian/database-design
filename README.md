@@ -108,6 +108,7 @@ packages/
 
 ## 文档
 
+- 系统使用说明：[`docs/guideline/usage.md`](docs/guideline/usage.md)
 - 关系图教程：[`docs/guideline/diagram-view.md`](docs/guideline/diagram-view.md)
 - 详细开发计划：[`docs/plan/development-plan-20260527.md`](docs/plan/development-plan-20260527.md)
 

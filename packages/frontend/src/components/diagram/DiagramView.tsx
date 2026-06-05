@@ -14,7 +14,7 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { App, Button, Space, Tooltip, Empty } from 'antd';
+import { App, Button, Space, Tooltip, Empty, theme } from 'antd';
 import {
   ApartmentOutlined,
   FullscreenOutlined,
@@ -30,16 +30,25 @@ import type { TableFlowNode } from '@/types/flow';
 
 const nodeTypes = { tableNode: TableNode } as unknown as NodeTypes;
 const edgeTypes = { fkEdge: ForeignKeyEdge } as unknown as EdgeTypes;
-const DEFAULT_EDGE_OPTIONS = {
-  markerEnd: { type: MarkerType.ArrowClosed, color: '#8c8c8c', width: 18, height: 18 },
-};
 
 const Inner: React.FC<{ fullscreen: boolean; onToggleFullscreen: () => void }> = ({
   fullscreen,
   onToggleFullscreen,
 }) => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const { nodes: derivedNodes, edges } = useDiagram();
+  const defaultEdgeOptions = useMemo(
+    () => ({
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: token.colorTextSecondary,
+        width: 18,
+        height: 18,
+      },
+    }),
+    [token.colorTextSecondary]
+  );
   const project = useProjectStore((s) => s.project);
   const updateTablePosition = useProjectStore((s) => s.updateTablePosition);
   const updateDiagramLayout = useProjectStore((s) => s.updateDiagramLayout);
@@ -112,10 +121,10 @@ const Inner: React.FC<{ fullscreen: boolean; onToggleFullscreen: () => void }> =
           top: 12,
           right: 12,
           zIndex: 10,
-          background: '#fff',
+          background: token.colorBgElevated,
           padding: 6,
           borderRadius: 6,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          boxShadow: token.boxShadowSecondary,
         }}
       >
         <Space size={4}>
@@ -134,7 +143,7 @@ const Inner: React.FC<{ fullscreen: boolean; onToggleFullscreen: () => void }> =
         </Space>
       </div>
     ),
-    [fullscreen, handleAutoLayout, onToggleFullscreen]
+    [fullscreen, handleAutoLayout, onToggleFullscreen, token.colorBgElevated, token.boxShadowSecondary]
   );
 
   if (!project) {
@@ -161,7 +170,7 @@ const Inner: React.FC<{ fullscreen: boolean; onToggleFullscreen: () => void }> =
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+        defaultEdgeOptions={defaultEdgeOptions}
         onNodesChange={onNodesChange}
         onNodeClick={(_, node) => selectTable(node.id)}
         onPaneClick={() => selectTable(null)}
@@ -172,9 +181,16 @@ const Inner: React.FC<{ fullscreen: boolean; onToggleFullscreen: () => void }> =
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={16} size={1} color="#eee" />
+        <Background gap={16} size={1} color={token.colorBorderSecondary} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable nodeStrokeWidth={2} maskColor="rgba(0,0,0,0.05)" />
+        <MiniMap
+          pannable
+          zoomable
+          nodeStrokeWidth={2}
+          nodeColor={token.colorBgElevated}
+          maskColor={token.colorBgMask}
+          style={{ background: token.colorBgContainer }}
+        />
       </ReactFlow>
     </>
   );
@@ -182,12 +198,13 @@ const Inner: React.FC<{ fullscreen: boolean; onToggleFullscreen: () => void }> =
 
 const DiagramView: React.FC = () => {
   const [fullscreen, setFullscreen] = useState(false);
+  const { token } = theme.useToken();
   const containerStyle: React.CSSProperties = fullscreen
     ? {
         position: 'fixed',
         inset: 0,
         zIndex: 1000,
-        background: '#fff',
+        background: token.colorBgContainer,
       }
     : { position: 'relative', height: '100%', width: '100%' };
 

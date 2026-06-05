@@ -8,6 +8,7 @@ import {
   Empty,
   Modal,
   Form,
+  theme,
 } from 'antd';
 import {
   PlusOutlined,
@@ -24,6 +25,7 @@ const { Text } = Typography;
 const Sidebar: React.FC = () => {
   const { project, addTable } = useProjectStore();
   const { selectedTableId, selectTable, setEnumManagerOpen } = useUiStore();
+  const { token } = theme.useToken();
   const [search, setSearch] = useState('');
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [form] = Form.useForm<{ name: string }>();
@@ -44,7 +46,7 @@ const Sidebar: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
-      <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid #f0f0f0' }}>
+      <div style={{ padding: '12px 12px 8px', borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <Text strong style={{ fontSize: 13 }}>
             <TableOutlined style={{ marginRight: 6, color: '#1677ff' }} />

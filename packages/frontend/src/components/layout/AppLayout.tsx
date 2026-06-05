@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layout } from 'antd';
+import { Layout, theme } from 'antd';
 import Toolbar from './Toolbar';
 import Sidebar from '@/components/sidebar/Sidebar';
 import { useUiStore } from '@/store/uiStore';
@@ -16,6 +16,7 @@ const { Sider, Content } = Layout;
 
 const AppLayout: React.FC = () => {
   const { activeView, sidebarCollapsed } = useUiStore();
+  const { token } = theme.useToken();
   useKeyboardShortcuts();
 
   return (
@@ -29,14 +30,18 @@ const AppLayout: React.FC = () => {
           width={240}
           collapsedWidth={0}
           collapsed={sidebarCollapsed}
-          style={{ background: '#fafafa', borderRight: '1px solid #f0f0f0', overflow: 'auto' }}
+          style={{
+            background: token.colorBgLayout,
+            borderRight: `1px solid ${token.colorBorderSecondary}`,
+            overflow: 'auto',
+          }}
           trigger={null}
         >
           <Sidebar />
         </Sider>
 
         {/* 主内容区 */}
-        <Content style={{ overflow: 'auto', background: '#fff' }}>
+        <Content style={{ overflow: 'auto', background: token.colorBgContainer }}>
           {activeView === 'designer' ? <DesignerPage /> : <DiagramPage />}
         </Content>
       </Layout>

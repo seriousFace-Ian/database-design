@@ -5,7 +5,7 @@ import {
   getSmoothStepPath,
   type EdgeProps,
 } from '@xyflow/react';
-import { Tooltip } from 'antd';
+import { Tooltip, theme } from 'antd';
 import type { FkFlowEdge } from '@/types/flow';
 
 const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
@@ -20,6 +20,7 @@ const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
   markerEnd,
   selected,
 }) => {
+  const { token } = theme.useToken();
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -37,7 +38,7 @@ const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
         path={path}
         markerEnd={markerEnd}
         style={{
-          stroke: selected ? '#1677ff' : '#8c8c8c',
+          stroke: selected ? token.colorPrimary : token.colorTextSecondary,
           strokeWidth: selected ? 2 : 1.5,
         }}
       />
@@ -66,12 +67,12 @@ const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
             >
               <span
                 style={{
-                  background: '#fff',
-                  border: '1px solid #d9d9d9',
+                  background: token.colorBgElevated,
+                  border: `1px solid ${token.colorBorder}`,
                   borderRadius: 10,
                   padding: '0 6px',
                   fontSize: 10,
-                  color: '#595959',
+                  color: token.colorTextSecondary,
                   cursor: 'help',
                   userSelect: 'none',
                   lineHeight: '16px',

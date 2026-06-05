@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Typography, Dropdown, Modal, Input, Space } from 'antd';
+import { Typography, Dropdown, Modal, Input, Space, theme } from 'antd';
 import {
   TableOutlined,
   EditOutlined,
@@ -21,6 +21,7 @@ interface Props {
 const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
   const { updateTable, deleteTable } = useProjectStore();
   const { selectTable } = useUiStore();
+  const { token } = theme.useToken();
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(table.name);
 
@@ -54,19 +55,19 @@ const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
         alignItems: 'center',
         padding: '6px 12px',
         cursor: 'pointer',
-        background: isSelected ? '#e6f4ff' : 'transparent',
-        borderLeft: isSelected ? '3px solid #1677ff' : '3px solid transparent',
+        background: isSelected ? token.controlItemBgActive : 'transparent',
+        borderLeft: `3px solid ${isSelected ? token.colorPrimary : 'transparent'}`,
         transition: 'all 0.15s',
       }}
       onMouseEnter={e => {
-        if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#f5f5f5';
+        if (!isSelected) (e.currentTarget as HTMLElement).style.background = token.controlItemBgHover;
       }}
       onMouseLeave={e => {
         if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent';
       }}
     >
       <TableOutlined
-        style={{ marginRight: 8, color: isSelected ? '#1677ff' : '#8c8c8c', flexShrink: 0 }}
+        style={{ marginRight: 8, color: isSelected ? token.colorPrimary : token.colorTextSecondary, flexShrink: 0 }}
       />
 
       {renaming ? (
@@ -86,7 +87,7 @@ const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
           style={{
             flex: 1,
             fontSize: 13,
-            color: isSelected ? '#1677ff' : '#262626',
+            color: isSelected ? token.colorPrimary : token.colorText,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -133,7 +134,7 @@ const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
           style={{
             padding: '2px 4px',
             borderRadius: 4,
-            color: '#8c8c8c',
+            color: token.colorTextSecondary,
             flexShrink: 0,
           }}
         >

@@ -438,6 +438,147 @@ describe('schemaDiff', () => {
     expect(sql.filter(s => s.includes('ADD CONSTRAINT "uq_ab"'))).toHaveLength(0);
   });
 
+  it('same-name index with changed columns → drop + add', () => {
+    const before = table({
+      id: 't1', name: 'models',
+      fields: [
+        field({ id: 'fa', name: 'a', type: 'INTEGER' }),
+        field({ id: 'fb', name: 'b', type: 'INTEGER' }),
+      ],
+      indexes: [
+        { id: 'i1', name: 'idx_models', columns: [{ fieldId: 'fa' }], isUnique: false },
+      ],
+    });
+    const after = table({
+      id: 't1', name: 'models',
+      fields: [
+        field({ id: 'fa', name: 'a', type: 'INTEGER' }),
+        field({ id: 'fb', name: 'b', type: 'INTEGER' }),
+      ],
+      indexes: [
+        { id: 'i1', name: 'idx_models', columns: [{ fieldId: 'fa' }, { fieldId: 'fb' }], isUnique: false },
+      ],
+    });
+    const diff = computeSchemaDiff(project({ tables: [before] }), project({ tables: [after] }));
+    const mod = diff.tables.modified[0];
+    expect(mod.indexesDropped.map(i => i.name)).toEqual(['idx_models']);
+    expect(mod.indexesAdded.map(i => i.name)).toEqual(['idx_models']);
+    const sql = flattenDiffSql(renderDiffSql(diff, [], [after]));
+    const dropIdx = sql.findIndex(s => s === 'DROP INDEX IF EXISTS "public"."idx_models";');
+    const createIdx = sql.findIndex(s => s.startsWith('CREATE INDEX "idx_models" ON "public"."models" ("a", "b")'));
+    expect(dropIdx).toBeGreaterThanOrEqual(0);
+    expect(createIdx).toBeGreaterThan(dropIdx);
+  });
+
+  it('same-name index with added/removed WHERE predicate → drop + add', () => {
+    const before = table({
+      id: 't1', name: 'models',
+      fields: [field({ id: 'fa', name: 'a', type: 'INTEGER' })],
+      indexes: [
+        { id: 'i1', name: 'idx_models', columns: [{ fieldId: 'fa' }], isUnique: false },
+      ],
+    });
+    const after = table({
+      id: 't1', name: 'models',
+      fields: [field({ id: 'fa', name: 'a', type: 'INTEGER' })],
+      indexes: [
+        {
+          id: 'i1', name: 'idx_models', columns: [{ fieldId: 'fa' }], isUnique: false,
+          predicate: 'deleted_at IS NULL',
+        },
+      ],
+    });
+    const diff = computeSchemaDiff(project({ tables: [before] }), project({ tables: [after] }));
+    const mod = diff.tables.modified[0];
+    expect(mod.indexesDropped).toHaveLength(1);
+    expect(mod.indexesAdded).toHaveLength(1);
+    const sql = flattenDiffSql(renderDiffSql(diff, [], [after]));
+    expect(sql.some(s => s.includes('WHERE deleted_at IS NULL'))).toBe(true);
+  });
+
+  it('same-name index with isUnique toggled → drop + add', () => {
+    const before = table({
+      id: 't1', name: 't',
+      fields: [field({ id: 'fa', name: 'a', type: 'INTEGER' })],
+      indexes: [
+        { id: 'i1', name: 'idx_t_a', columns: [{ fieldId: 'fa' }], isUnique: false },
+      ],
+    });
+    const after = table({
+      id: 't1', name: 't',
+      fields: [field({ id: 'fa', name: 'a', type: 'INTEGER' })],
+      indexes: [
+        { id: 'i1', name: 'idx_t_a', columns: [{ fieldId: 'fa' }], isUnique: true },
+      ],
+    });
+    const diff = computeSchemaDiff(project({ tables: [before] }), project({ tables: [after] }));
+    expect(diff.tables.modified[0].indexesDropped).toHaveLength(1);
+    expect(diff.tables.modified[0].indexesAdded).toHaveLength(1);
+  });
+
+  it('same-name EXCLUDE with changed operator → drop + add', () => {
+    const fr = field({ id: 'fr', name: 'room_id', type: 'INTEGER' });
+    const fd = field({ id: 'fd', name: 'during', type: 'TSTZRANGE' });
+    const before = table({
+      id: 't1', name: 'bookings', fields: [fr, fd],
+      constraints: [
+        {
+          id: 'c1', name: 'ex_overlap', kind: 'EXCLUDE',
+          exclusionUsing: 'GIST',
+          exclusionElements: [
+            { fieldId: 'fr', operator: '=' },
+            { fieldId: 'fd', operator: '&&' },
+          ],
+        },
+      ],
+    });
+    const after = table({
+      id: 't1', name: 'bookings', fields: [fr, fd],
+      constraints: [
+        {
+          id: 'c1', name: 'ex_overlap', kind: 'EXCLUDE',
+          exclusionUsing: 'GIST',
+          exclusionElements: [
+            { fieldId: 'fr', operator: '=' },
+            { fieldId: 'fd', operator: '@>' },
+          ],
+        },
+      ],
+    });
+    const diff = computeSchemaDiff(project({ tables: [before] }), project({ tables: [after] }));
+    const mod = diff.tables.modified[0];
+    expect(mod.tableConstraintsDropped).toEqual([{ name: 'ex_overlap' }]);
+    expect(mod.tableConstraintsAdded[0].resolvedName).toBe('ex_overlap');
+  });
+
+  it('same-name EXCLUDE with changed USING method → drop + add', () => {
+    const fa = field({ id: 'fa', name: 'a', type: 'INTEGER' });
+    const before = table({
+      id: 't1', name: 't', fields: [fa],
+      constraints: [
+        {
+          id: 'c1', name: 'ex_t', kind: 'EXCLUDE',
+          exclusionUsing: 'GIST',
+          exclusionElements: [{ fieldId: 'fa', operator: '=' }],
+        },
+      ],
+    });
+    const after = table({
+      id: 't1', name: 't', fields: [fa],
+      constraints: [
+        {
+          id: 'c1', name: 'ex_t', kind: 'EXCLUDE',
+          exclusionUsing: 'SPGIST',
+          exclusionElements: [{ fieldId: 'fa', operator: '=' }],
+        },
+      ],
+    });
+    const diff = computeSchemaDiff(project({ tables: [before] }), project({ tables: [after] }));
+    const mod = diff.tables.modified[0];
+    expect(mod.tableConstraintsDropped).toEqual([{ name: 'ex_t' }]);
+    expect(mod.tableConstraintsAdded[0].resolvedName).toBe('ex_t');
+  });
+
   it('countDiffChanges aggregates additions/drops/modifications', () => {
     const before = table({
       id: 't1', name: 'users',

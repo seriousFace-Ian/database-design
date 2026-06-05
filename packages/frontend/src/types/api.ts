@@ -59,9 +59,16 @@ export interface ApiDbTable {
 
 export interface ApiDbTableConstraint {
   name: string;
-  kind: 'UNIQUE' | 'CHECK';
+  kind: 'UNIQUE' | 'CHECK' | 'EXCLUDE';
   columns?: string[];       // UNIQUE：列序固定（按 conkey 顺序）
   expression?: string;      // CHECK：剥去外层 CHECK(...) 后的表达式
+
+  // EXCLUDE（Phase 8）
+  exclusionUsing?: string;
+  exclusionElements?: { column?: string; expression?: string; operator: string }[];
+  exclusionWhere?: string;
+  exclusionDeferrable?: boolean;
+  exclusionInitiallyDeferred?: boolean;
 }
 
 export interface ApiDbColumn {
@@ -69,6 +76,8 @@ export interface ApiDbColumn {
   type: string;
   nullable: boolean;
   defaultValue: string | null;
+  isIdentity?: boolean;
+  identityGeneration?: 'ALWAYS' | 'BY DEFAULT';
   isPrimaryKey: boolean;
   isUnique: boolean;
   comment: string | null;
@@ -85,11 +94,22 @@ export interface ApiDbForeignKey {
   onUpdate: string;
 }
 
+export interface ApiDbIndexColumn {
+  column: string | null;
+  expression?: string;
+  direction?: 'ASC' | 'DESC';
+  opclass?: string;
+  nulls?: 'FIRST' | 'LAST';
+}
+
 export interface ApiDbIndex {
   name: string;
   columns: string[];
+  columnsDetail?: ApiDbIndexColumn[];
   isUnique: boolean;
   indexType: string;
+  predicate?: string;
+  rawDefinition?: string;
 }
 
 export interface ApiDbEnum {

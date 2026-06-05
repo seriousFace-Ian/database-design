@@ -7,6 +7,7 @@ import {
   Tooltip,
   Typography,
   App,
+  theme,
 } from 'antd';
 import {
   SaveOutlined,
@@ -24,6 +25,8 @@ import {
   ThunderboltOutlined,
   ImportOutlined,
   DiffOutlined,
+  BulbOutlined,
+  BulbFilled,
 } from '@ant-design/icons';
 import { useProjectStore } from '@/store/projectStore';
 import { useUiStore } from '@/store/uiStore';
@@ -37,8 +40,9 @@ const { Text } = Typography;
 
 const Toolbar: React.FC = () => {
   const { message, modal } = App.useApp();
+  const { token } = theme.useToken();
   const { project, isDirty, loadProject: loadProjectIntoStore, markSaved } = useProjectStore();
-  const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen, setExecuteDdlOpen, setSqlDiffOpen } = useUiStore();
+  const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen, setExecuteDdlOpen, setSqlDiffOpen, themeMode, toggleThemeMode } = useUiStore();
   const { config: dbConfig, status: dbStatus, disconnect } = useConnectionStore();
   // zundo temporal 暂时直接用 store 内置
   const temporalStore = useProjectStore.temporal;
@@ -137,8 +141,8 @@ const Toolbar: React.FC = () => {
         justifyContent: 'space-between',
         padding: '0 16px',
         height: 52,
-        borderBottom: '1px solid #f0f0f0',
-        background: '#fff',
+        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+        background: token.colorBgContainer,
         flexShrink: 0,
       }}
     >
@@ -181,6 +185,13 @@ const Toolbar: React.FC = () => {
             size="small"
             disabled={!canRedo}
             onClick={() => temporalStore.getState().redo()}
+          />
+        </Tooltip>
+        <Tooltip title={themeMode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}>
+          <Button
+            icon={themeMode === 'dark' ? <BulbFilled /> : <BulbOutlined />}
+            size="small"
+            onClick={toggleThemeMode}
           />
         </Tooltip>
         <Button icon={<PlusOutlined />} size="small" onClick={handleNew}>

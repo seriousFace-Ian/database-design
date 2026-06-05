@@ -6,6 +6,7 @@ import { useUiStore } from '@/store/uiStore';
 import TableMetaForm from './TableMetaForm';
 import FieldsTable from './FieldsTable';
 import TableConstraintsPanel from './TableConstraintsPanel';
+import TableIndexesPanel from './TableIndexesPanel';
 
 const { Title, Text } = Typography;
 
@@ -70,6 +71,11 @@ const TableEditor: React.FC = () => {
             key: 'constraints',
             label: `约束 (${table.constraints?.length ?? 0})`,
             children: <TableConstraintsPanel table={table} />,
+          },
+          {
+            key: 'indexes',
+            label: `索引 (${table.indexes?.length ?? 0})`,
+            children: <TableIndexesPanel table={table} />,
           },
           {
             key: 'meta',

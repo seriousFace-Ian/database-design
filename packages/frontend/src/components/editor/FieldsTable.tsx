@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Table, Button, Tooltip, Space, Empty, App } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { Table, Button, Tooltip, Space, Empty, App, Input, Checkbox, theme, Dropdown } from 'antd';
 import {
   DeleteOutlined,
   KeyOutlined,
@@ -8,7 +8,10 @@ import {
   HolderOutlined,
   CheckCircleOutlined,
   FieldTimeOutlined,
+  DownOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 import {
   DndContext,
   DragEndEvent,
@@ -35,6 +38,7 @@ interface DraggableRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
 }
 
 const DraggableRow: React.FC<DraggableRowProps> = ({ children, ...props }) => {
+  const { token } = theme.useToken();
   const {
     attributes,
     listeners,
@@ -49,7 +53,9 @@ const DraggableRow: React.FC<DraggableRowProps> = ({ children, ...props }) => {
     ...props.style,
     transform: CSS.Transform.toString(transform),
     transition,
-    ...(isDragging ? { position: 'relative', zIndex: 1, opacity: 0.75, background: '#f0f7ff' } : {}),
+    ...(isDragging
+      ? { position: 'relative', zIndex: 1, opacity: 0.75, background: token.controlItemBgActive }
+      : {}),
   };
 
   return (
@@ -60,7 +66,7 @@ const DraggableRow: React.FC<DraggableRowProps> = ({ children, ...props }) => {
             children: (
               <HolderOutlined
                 ref={setActivatorNodeRef}
-                style={{ touchAction: 'none', cursor: 'grab', color: '#bbb', fontSize: 14 }}
+                style={{ touchAction: 'none', cursor: 'grab', color: token.colorTextDisabled, fontSize: 14 }}
                 {...listeners}
               />
             ),
@@ -72,12 +78,129 @@ const DraggableRow: React.FC<DraggableRowProps> = ({ children, ...props }) => {
   );
 };
 
+// ==================== 默认值预设 ====================
+
+interface PresetGroup {
+  key: string;
+  label: string;
+  items: { value: string; label?: string }[];
+  /** 该字段类型属于本组时，组排在最前 */
+  matchTypes?: string[];
+}
+
+const DEFAULT_PRESETS: PresetGroup[] = [
+  {
+    key: 'timestamp',
+    label: '时间戳',
+    items: [{ value: 'now()' }, { value: 'CURRENT_TIMESTAMP' }],
+    matchTypes: ['TIMESTAMP', 'TIMESTAMPTZ', 'DATE', 'TIME'],
+  },
+  {
+    key: 'uuid',
+    label: 'UUID',
+    items: [{ value: 'gen_random_uuid()' }, { value: 'uuid_generate_v4()' }],
+    matchTypes: ['UUID'],
+  },
+  {
+    key: 'boolean',
+    label: '布尔',
+    items: [{ value: 'true' }, { value: 'false' }],
+    matchTypes: ['BOOLEAN'],
+  },
+  {
+    key: 'numeric',
+    label: '数值',
+    items: [{ value: '0' }, { value: '1' }],
+    matchTypes: ['SMALLINT', 'INTEGER', 'BIGINT', 'NUMERIC', 'REAL', 'DOUBLE PRECISION'],
+  },
+  {
+    key: 'string',
+    label: '字符串',
+    items: [{ value: "''", label: "'' (空字符串)" }],
+    matchTypes: ['VARCHAR', 'TEXT', 'CHAR'],
+  },
+  {
+    key: 'json',
+    label: 'JSON',
+    items: [
+      { value: "'{}'", label: "'{}' (空对象)" },
+      { value: "'[]'", label: "'[]' (空数组)" },
+    ],
+    matchTypes: ['JSON', 'JSONB'],
+  },
+  {
+    key: 'sequence',
+    label: '序列',
+    items: [{ value: "nextval('seq_name')", label: "nextval('seq_name') —— 改名后使用" }],
+  },
+];
+
+function buildPresetMenu(
+  fieldType: string,
+  onPick: (val: string) => void
+): MenuProps {
+  const typeUpper = String(fieldType).toUpperCase();
+  const matched: PresetGroup[] = [];
+  const others: PresetGroup[] = [];
+  for (const g of DEFAULT_PRESETS) {
+    if (g.matchTypes?.some(t => t === typeUpper)) {
+      matched.push(g);
+    } else {
+      others.push(g);
+    }
+  }
+  const ordered = [...matched, ...others];
+  return {
+    items: ordered.map((g, gi) => ({
+      key: `g-${g.key}`,
+      type: 'group' as const,
+      label: g.label + (matched.includes(g) && gi === 0 ? ' · 推荐' : ''),
+      children: g.items.map(it => ({
+        key: `${g.key}-${it.value}`,
+        label: it.label ?? it.value,
+        onClick: () => onPick(it.value),
+      })),
+    })),
+  };
+}
+
+const DefaultValueInput: React.FC<{
+  field: FieldDefinition;
+  onChange: (next: string | undefined) => void;
+}> = ({ field, onChange }) => {
+  const menu = useMemo(
+    () => buildPresetMenu(String(field.type), v => onChange(v)),
+    [field.type, onChange]
+  );
+  const disabled = !!field.identity;
+  return (
+    <Input
+      size="small"
+      value={field.defaultValue ?? ''}
+      placeholder={disabled ? 'IDENTITY 列' : 'NULL'}
+      disabled={disabled}
+      onChange={e => onChange(e.target.value || undefined)}
+      addonAfter={
+        <Dropdown menu={menu} trigger={['click']} disabled={disabled}>
+          <Tooltip title="常用默认值预设">
+            <span style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <ThunderboltOutlined />
+              <DownOutlined style={{ fontSize: 9 }} />
+            </span>
+          </Tooltip>
+        </Dropdown>
+      }
+    />
+  );
+};
+
 interface Props {
   table: TableDefinition;
 }
 
 const FieldsTable: React.FC<Props> = ({ table }) => {
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const { project, updateField, deleteField, addField, addAuditFields, reorderFields } = useProjectStore();
   const [fkField, setFkField] = useState<FieldDefinition | null>(null);
   const [checkField, setCheckField] = useState<FieldDefinition | null>(null);
@@ -111,7 +234,7 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       key: 'drag',
       width: 32,
       fixed: 'left',
-      render: () => <HolderOutlined style={{ color: '#bbb' }} />,
+      render: () => <HolderOutlined style={{ color: token.colorTextDisabled }} />,
     },
     {
       title: '',
@@ -122,12 +245,12 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
         <Space size={2}>
           {record.isPrimaryKey && (
             <Tooltip title="主键">
-              <KeyOutlined style={{ color: '#faad14', fontSize: 12 }} />
+              <KeyOutlined style={{ color: token.colorWarning, fontSize: 12 }} />
             </Tooltip>
           )}
           {record.foreignKey && (
             <Tooltip title="外键">
-              <LinkOutlined style={{ color: '#1677ff', fontSize: 12 }} />
+              <LinkOutlined style={{ color: token.colorPrimary, fontSize: 12 }} />
             </Tooltip>
           )}
         </Space>
@@ -166,11 +289,9 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       width: 50,
       align: 'center',
       render: (nullable, record) => (
-        <input
-          type="checkbox"
+        <Checkbox
           checked={nullable}
           onChange={e => updateField(table.id, record.id, { nullable: e.target.checked })}
-          style={{ cursor: 'pointer' }}
         />
       ),
     },
@@ -181,8 +302,7 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       width: 44,
       align: 'center',
       render: (pk, record) => (
-        <input
-          type="checkbox"
+        <Checkbox
           checked={pk}
           onChange={e =>
             updateField(table.id, record.id, {
@@ -190,7 +310,6 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
               nullable: e.target.checked ? false : record.nullable,
             })
           }
-          style={{ cursor: 'pointer' }}
         />
       ),
     },
@@ -201,11 +320,9 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       width: 44,
       align: 'center',
       render: (unique, record) => (
-        <input
-          type="checkbox"
+        <Checkbox
           checked={unique}
           onChange={e => updateField(table.id, record.id, { isUnique: e.target.checked })}
-          style={{ cursor: 'pointer' }}
         />
       ),
     },
@@ -213,20 +330,11 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       title: '默认值',
       dataIndex: 'defaultValue',
       key: 'defaultValue',
-      width: 120,
-      render: (val, record) => (
-        <input
-          style={{
-            border: '1px solid #d9d9d9',
-            borderRadius: 4,
-            padding: '2px 8px',
-            width: '100%',
-            fontSize: 13,
-            outline: 'none',
-          }}
-          value={val ?? ''}
-          placeholder="NULL"
-          onChange={e => updateField(table.id, record.id, { defaultValue: e.target.value || undefined })}
+      width: 160,
+      render: (_, record) => (
+        <DefaultValueInput
+          field={record}
+          onChange={next => updateField(table.id, record.id, { defaultValue: next })}
         />
       ),
     },
@@ -236,15 +344,8 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       key: 'comment',
       width: 240,
       render: (val, record) => (
-        <input
-          style={{
-            border: '1px solid #d9d9d9',
-            borderRadius: 4,
-            padding: '2px 8px',
-            width: '100%',
-            fontSize: 13,
-            outline: 'none',
-          }}
+        <Input
+          size="small"
           value={val ?? ''}
           placeholder="字段描述"
           onChange={e => updateField(table.id, record.id, { comment: e.target.value || undefined })}
@@ -258,11 +359,28 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
       fixed: 'right',
       render: (_, record) => (
         <Space size={2}>
-          <Tooltip title={record.checkConstraint ? `CHECK (${record.checkConstraint})` : '添加 CHECK 约束'}>
+          <Tooltip
+            title={
+              record.checkConstraint
+                ? `CHECK (${record.checkConstraint})${record.identity ? ` · IDENTITY ${record.identity}` : ''}`
+                : record.identity
+                  ? `IDENTITY ${record.identity}`
+                  : '列约束（CHECK / IDENTITY）'
+            }
+          >
             <Button
               type="text"
               size="small"
-              icon={<CheckCircleOutlined style={{ color: record.checkConstraint ? '#52c41a' : '#bbb' }} />}
+              icon={
+                <CheckCircleOutlined
+                  style={{
+                    color:
+                      record.checkConstraint || record.identity
+                        ? token.colorSuccess
+                        : token.colorTextDisabled,
+                  }}
+                />
+              }
               onClick={() => setCheckField(record)}
             />
           </Tooltip>
@@ -270,7 +388,7 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
             <Button
               type="text"
               size="small"
-              icon={<LinkOutlined style={{ color: record.foreignKey ? '#1677ff' : '#bbb' }} />}
+              icon={<LinkOutlined style={{ color: record.foreignKey ? token.colorPrimary : token.colorTextDisabled }} />}
               onClick={() => setFkField(record)}
             />
           </Tooltip>

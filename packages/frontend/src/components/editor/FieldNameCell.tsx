@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Input } from 'antd';
+import { Input, theme } from 'antd';
 import type { FieldDefinition } from '@/types/schema';
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
 }
 
 const FieldNameCell: React.FC<Props> = ({ field, onChange }) => {
+  const { token } = theme.useToken();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(field.name);
 
@@ -43,7 +44,7 @@ const FieldNameCell: React.FC<Props> = ({ field, onChange }) => {
         minHeight: 22,
         fontFamily: 'monospace',
         fontSize: 13,
-        color: field.name ? '#262626' : '#bfbfbf',
+        color: field.name ? token.colorText : token.colorTextPlaceholder,
       }}
     >
       {field.name || '点击编辑字段名'}

@@ -5,6 +5,8 @@ import type {
   EnumType,
   FkAction,
   TableConstraint,
+  IndexDefinition,
+  IndexColumn,
 } from '@/types/schema';
 import { typeHasLength, typeHasPrecision } from './typeDefinitions';
 
@@ -58,7 +60,10 @@ function renderColumnDefinition(field: FieldDefinition, enums: EnumType[]): stri
   if (!field.nullable && !field.isPrimaryKey) {
     parts.push('NOT NULL');
   }
-  if (field.defaultValue != null && field.defaultValue !== '') {
+  // IDENTITY 与 DEFAULT 互斥；IDENTITY 优先并隐式 NOT NULL
+  if (field.identity) {
+    parts.push(`GENERATED ${field.identity} AS IDENTITY`);
+  } else if (field.defaultValue != null && field.defaultValue !== '') {
     parts.push(`DEFAULT ${field.defaultValue}`);
   }
   // 主键已隐含唯一，避免冗余 UNIQUE
@@ -136,7 +141,7 @@ function generateCreateTableStatement(table: TableDefinition, enums: EnumType[])
 
 // ==================== 表级约束 ====================
 
-/** 缺省约束名前缀；UNIQUE 拼字段，CHECK 用短哈希避免重名 */
+/** 缺省约束名前缀；UNIQUE 拼字段，CHECK 用短哈希避免重名，EXCLUDE 拼字段或哈希表达式 */
 function defaultConstraintName(c: TableConstraint, table: TableDefinition): string {
   if (c.kind === 'UNIQUE') {
     const cols = (c.fieldIds ?? [])
@@ -144,6 +149,15 @@ function defaultConstraintName(c: TableConstraint, table: TableDefinition): stri
       .filter(Boolean)
       .join('_');
     return `uq_${table.name}_${cols || 'unique'}`;
+  }
+  if (c.kind === 'EXCLUDE') {
+    const tokens = (c.exclusionElements ?? []).map(el => {
+      if (el.fieldId) {
+        return table.fields.find(f => f.id === el.fieldId)?.name ?? 'expr';
+      }
+      return shortHash(el.expression ?? 'expr');
+    });
+    return `ex_${table.name}_${tokens.join('_') || 'exclude'}`;
   }
   // CHECK
   return `chk_${table.name}_${shortHash(c.expression ?? c.id)}`;
@@ -172,9 +186,42 @@ export function renderTableConstraintInline(
     if (cols.length < 1) return null; // 至少 1 列；UI 强制 2+，但宽容渲染
     return `CONSTRAINT ${quoteIdent(name)} UNIQUE (${cols.join(', ')})`;
   }
+  if (c.kind === 'EXCLUDE') {
+    return renderExclusionConstraintInline(c, table, name);
+  }
   const expr = c.expression?.trim();
   if (!expr) return null;
   return `CONSTRAINT ${quoteIdent(name)} CHECK (${expr})`;
+}
+
+/** 渲染 EXCLUDE 约束（含 USING、元素、WHERE、DEFERRABLE 等） */
+function renderExclusionConstraintInline(
+  c: TableConstraint,
+  table: TableDefinition,
+  name: string
+): string | null {
+  const elements = c.exclusionElements ?? [];
+  if (elements.length === 0) return null;
+
+  const using = c.exclusionUsing ?? 'GIST';
+  const renderedElements = elements
+    .map(el => {
+      const head = el.fieldId
+        ? quoteIdent(table.fields.find(f => f.id === el.fieldId)?.name ?? '')
+        : (el.expression ?? '').trim();
+      if (!head || !el.operator?.trim()) return null;
+      return `${head} WITH ${el.operator.trim()}`;
+    })
+    .filter((e): e is string => !!e);
+  if (renderedElements.length === 0) return null;
+
+  const where = c.exclusionWhere?.trim() ? ` WHERE (${c.exclusionWhere.trim()})` : '';
+  const deferrable = c.exclusionDeferrable
+    ? c.exclusionInitiallyDeferred
+      ? ' DEFERRABLE INITIALLY DEFERRED'
+      : ' DEFERRABLE'
+    : '';
+  return `CONSTRAINT ${quoteIdent(name)} EXCLUDE USING ${using} (${renderedElements.join(', ')})${where}${deferrable}`;
 }
 
 /** ALTER TABLE 形式的表级约束（用于 diff 生成 ADD CONSTRAINT 语句） */
@@ -232,29 +279,71 @@ function generateForeignKeyStatements(tables: TableDefinition[]): string[] {
 
 // ==================== CREATE INDEX ====================
 
-function generateIndexStatements(tables: TableDefinition[]): string[] {
-  const statements: string[] = [];
-
-  for (const table of tables) {
-    for (const index of table.indexes ?? []) {
-      const fields = index.fieldIds
-        .map(id => table.fields.find(f => f.id === id))
-        .filter((f): f is FieldDefinition => !!f);
-      if (fields.length === 0) continue;
-
-      const unique = index.isUnique ? 'UNIQUE ' : '';
-      // BTREE 是默认方法，省略 USING 让语句更简洁
-      const using =
-        index.indexType && index.indexType !== 'BTREE' ? ` USING ${index.indexType}` : '';
-      const cols = fields.map(f => quoteIdent(f.name)).join(', ');
-
-      statements.push(
-        `CREATE ${unique}INDEX ${quoteIdent(index.name)} ` +
-          `ON ${qualified(table.schema, table.name)}${using} (${cols});`
-      );
-    }
+/** 渲染一个索引列：字段/表达式 + opclass + 方向 + NULLS */
+function renderIndexColumn(col: IndexColumn, fields: FieldDefinition[]): string | null {
+  let head: string;
+  if (col.fieldId) {
+    const f = fields.find(ff => ff.id === col.fieldId);
+    if (!f) return null;
+    head = quoteIdent(f.name);
+  } else {
+    const expr = col.expression?.trim();
+    if (!expr) return null;
+    head = expr;
   }
 
+  const parts = [head];
+  if (col.opclass?.trim()) parts.push(col.opclass.trim());
+  const tail: string[] = [];
+  // ASC 是默认值，不显式输出，保持 SQL 简洁
+  if (col.direction === 'DESC') tail.push('DESC');
+  if (col.nulls) tail.push(`NULLS ${col.nulls}`);
+  return tail.length ? `${parts.join(' ')} ${tail.join(' ')}` : parts.join(' ');
+}
+
+/** 自动索引名：idx_<table>_<col1>_<col2>...；UNIQUE 时前缀 uq_；表达式列取首词或哈希 */
+export function autoIndexName(idx: IndexDefinition, table: TableDefinition): string {
+  const tokens = idx.columns.map(col => {
+    if (col.fieldId) {
+      return table.fields.find(f => f.id === col.fieldId)?.name ?? 'col';
+    }
+    const expr = (col.expression ?? '').trim();
+    const firstWord = expr.match(/[a-zA-Z_][a-zA-Z0-9_]*/)?.[0];
+    return firstWord ?? shortHash(expr || 'expr');
+  });
+  const prefix = idx.isUnique ? 'uq' : 'idx';
+  return `${prefix}_${table.name}_${tokens.join('_') || 'idx'}`;
+}
+
+/** 渲染单条 CREATE INDEX 语句；若全部列都解析不出 → 返回 null */
+export function renderCreateIndex(idx: IndexDefinition, table: TableDefinition): string | null {
+  const cols = idx.columns
+    .map(c => renderIndexColumn(c, table.fields))
+    .filter((s): s is string => !!s);
+  if (cols.length === 0) return null;
+
+  const name = idx.name?.trim() || autoIndexName(idx, table);
+  const using = idx.indexType && idx.indexType !== 'BTREE' ? ` USING ${idx.indexType}` : '';
+  const include = idx.include?.length
+    ? ` INCLUDE (${idx.include.map(quoteIdent).join(', ')})`
+    : '';
+  const where = idx.predicate?.trim() ? ` WHERE ${idx.predicate.trim()}` : '';
+  const unique = idx.isUnique ? 'UNIQUE ' : '';
+
+  return (
+    `CREATE ${unique}INDEX ${quoteIdent(name)} ` +
+    `ON ${qualified(table.schema, table.name)}${using} (${cols.join(', ')})${include}${where};`
+  );
+}
+
+function generateIndexStatements(tables: TableDefinition[]): string[] {
+  const statements: string[] = [];
+  for (const table of tables) {
+    for (const index of table.indexes ?? []) {
+      const sql = renderCreateIndex(index, table);
+      if (sql) statements.push(sql);
+    }
+  }
   return statements;
 }
 

@@ -162,6 +162,8 @@ describe('schemaImporter', () => {
     const idx = inspectionToProject(data, 'x').tables[0].indexes;
     expect(idx).toHaveLength(1);
     expect(idx[0]).toMatchObject({ name: 'idx_a_b', isUnique: false, indexType: 'BTREE' });
+    expect(idx[0].columns).toHaveLength(2);
+    expect(idx[0].columns[0].fieldId).toBeDefined();
   });
 
   it('复合 UNIQUE 不让字段变成单列唯一，仅保留复合唯一索引', () => {
@@ -191,8 +193,9 @@ describe('schemaImporter', () => {
     expect(t.fields.find(f => f.name === 'b')!.isUnique).toBe(false);
     // 复合唯一以索引形式保留（不与任何单列 UNIQUE 重复，故不被去重跳过）
     expect(t.indexes).toHaveLength(1);
-    expect(t.indexes[0]).toMatchObject({ name: 'uq_a_b', isUnique: true, fieldIds: expect.any(Array) });
-    expect(t.indexes[0].fieldIds).toHaveLength(2);
+    expect(t.indexes[0]).toMatchObject({ name: 'uq_a_b', isUnique: true });
+    expect(t.indexes[0].columns).toHaveLength(2);
+    expect(t.indexes[0].columns.every(c => c.fieldId)).toBe(true);
   });
 
   it('表级 UNIQUE / CHECK 约束被映射到 TableConstraint[]', () => {
@@ -229,6 +232,141 @@ describe('schemaImporter', () => {
     const chk = t.constraints!.find(c => c.name === 'chk_dates')!;
     expect(chk.kind).toBe('CHECK');
     expect(chk.expression).toBe('start_date < end_date');
+  });
+
+  it('部分索引（WHERE deleted_at IS NULL）经 inspector → importer 保留谓词与方向', () => {
+    const data: InspectData = {
+      enums: [],
+      tables: [
+        {
+          name: 'models',
+          schema: 'public',
+          comment: null,
+          columns: [
+            col({ name: 'enabled', type: 'boolean', ordinalPosition: 1 }),
+            col({ name: 'status', type: 'integer', ordinalPosition: 2 }),
+            col({ name: 'deleted_at', type: 'timestamp with time zone', ordinalPosition: 3 }),
+          ],
+          foreignKeys: [],
+          indexes: [
+            {
+              name: 'idx_models_visible',
+              columns: ['enabled', 'status'],
+              columnsDetail: [
+                { column: 'enabled', direction: 'ASC' },
+                { column: 'status', direction: 'ASC' },
+              ],
+              isUnique: false,
+              indexType: 'btree',
+              predicate: 'deleted_at IS NULL',
+            },
+          ],
+        },
+      ],
+    };
+    const t = inspectionToProject(data, 'x').tables[0];
+    expect(t.indexes).toHaveLength(1);
+    expect(t.indexes[0].predicate).toBe('deleted_at IS NULL');
+    expect(t.indexes[0].columns).toHaveLength(2);
+    expect(t.indexes[0].columns[0].fieldId).toBeDefined();
+  });
+
+  it('GIN + opclass 索引保留 opclass 与索引类型', () => {
+    const data: InspectData = {
+      enums: [],
+      tables: [
+        {
+          name: 'messages',
+          schema: 'public',
+          comment: null,
+          columns: [col({ name: 'content', type: 'jsonb', ordinalPosition: 1 })],
+          foreignKeys: [],
+          indexes: [
+            {
+              name: 'idx_messages_content',
+              columns: ['content'],
+              columnsDetail: [{ column: 'content', opclass: 'jsonb_path_ops' }],
+              isUnique: false,
+              indexType: 'gin',
+            },
+          ],
+        },
+      ],
+    };
+    const t = inspectionToProject(data, 'x').tables[0];
+    expect(t.indexes[0].indexType).toBe('GIN');
+    expect(t.indexes[0].columns[0].opclass).toBe('jsonb_path_ops');
+  });
+
+  it('IDENTITY 列被识别（保留 BIGINT 类型并设置 identity）', () => {
+    const data: InspectData = {
+      enums: [],
+      tables: [
+        {
+          name: 'upload_tasks',
+          schema: 'public',
+          comment: null,
+          columns: [
+            col({
+              name: 'id',
+              type: 'bigint',
+              isPrimaryKey: true,
+              nullable: false,
+              isIdentity: true,
+              identityGeneration: 'BY DEFAULT',
+            }),
+          ],
+          foreignKeys: [],
+          indexes: [],
+        },
+      ],
+    };
+    const f = inspectionToProject(data, 'x').tables[0].fields[0];
+    expect(f.type).toBe('BIGINT');
+    expect(f.identity).toBe('BY DEFAULT');
+    expect(f.defaultValue).toBeUndefined();
+  });
+
+  it('EXCLUDE 约束被映射到 TableConstraint[]，含 USING / elements / WHERE', () => {
+    const data: InspectData = {
+      enums: [],
+      tables: [
+        {
+          name: 'bookings',
+          schema: 'public',
+          comment: null,
+          columns: [
+            col({ name: 'room_id', type: 'integer', ordinalPosition: 1 }),
+            col({ name: 'during', type: 'tstzrange', ordinalPosition: 2 }),
+            col({ name: 'active', type: 'boolean', ordinalPosition: 3 }),
+          ],
+          foreignKeys: [],
+          indexes: [],
+          constraints: [
+            {
+              name: 'bookings_no_overlap',
+              kind: 'EXCLUDE',
+              exclusionUsing: 'gist',
+              exclusionElements: [
+                { column: 'room_id', operator: '=' },
+                { column: 'during', operator: '&&' },
+              ],
+              exclusionWhere: 'active',
+            },
+          ],
+        },
+      ],
+    };
+    const t = inspectionToProject(data, 'x').tables[0];
+    expect(t.constraints).toHaveLength(1);
+    const ex = t.constraints![0];
+    expect(ex.kind).toBe('EXCLUDE');
+    expect(ex.exclusionUsing).toBe('GIST');
+    expect(ex.exclusionWhere).toBe('active');
+    expect(ex.exclusionElements).toHaveLength(2);
+    expect(ex.exclusionElements![0].fieldId).toBeDefined();
+    expect(ex.exclusionElements![0].operator).toBe('=');
+    expect(ex.exclusionElements![1].operator).toBe('&&');
   });
 
   it('注释与可空被保留', () => {

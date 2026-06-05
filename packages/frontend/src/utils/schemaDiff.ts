@@ -101,23 +101,50 @@ function normalizeFk(
   };
 }
 
+interface NormalizedIndexColumn {
+  text: string;          // "name", LOWER(name), 等
+  opclass?: string;
+  direction?: 'ASC' | 'DESC';
+  nulls?: 'FIRST' | 'LAST';
+}
+
 interface NormalizedIndex {
   name: string;
-  columns: string[];
+  columns: NormalizedIndexColumn[];
   isUnique: boolean;
   indexType: string;
+  predicate?: string;
+  include?: string[];
 }
 
 function normalizeIndex(index: IndexDefinition, table: TableDefinition): NormalizedIndex | null {
-  const columns = index.fieldIds
-    .map(id => table.fields.find(f => f.id === id)?.name)
-    .filter((n): n is string => !!n);
+  const columns: NormalizedIndexColumn[] = [];
+  for (const col of index.columns ?? []) {
+    let text: string;
+    if (col.fieldId) {
+      const name = table.fields.find(f => f.id === col.fieldId)?.name;
+      if (!name) continue;
+      text = name;
+    } else {
+      const expr = col.expression?.trim();
+      if (!expr) continue;
+      text = expr;
+    }
+    columns.push({
+      text,
+      opclass: col.opclass?.trim() || undefined,
+      direction: col.direction === 'DESC' ? 'DESC' : undefined,
+      nulls: col.nulls,
+    });
+  }
   if (columns.length === 0) return null;
   return {
     name: index.name,
     columns,
     isUnique: index.isUnique,
     indexType: (index.indexType ?? 'BTREE').toUpperCase(),
+    predicate: index.predicate?.trim() || undefined,
+    include: index.include?.length ? [...index.include] : undefined,
   };
 }
 
@@ -256,7 +283,20 @@ function constraintSignature(c: TableConstraint, table: TableDefinition): string
       .join(',');
     return `UNIQUE(${cols})`;
   }
-  return `CHECK(${(c.expression ?? '').trim()})`;
+  if (c.kind === 'CHECK') {
+    return `CHECK(${(c.expression ?? '').trim()})`;
+  }
+  // EXCLUDE
+  const els = (c.exclusionElements ?? []).map(el => {
+    const head = el.fieldId
+      ? table.fields.find(f => f.id === el.fieldId)?.name ?? '?'
+      : (el.expression ?? '').trim();
+    return `${head}#${el.operator.trim()}`;
+  }).join(',');
+  const where = (c.exclusionWhere ?? '').trim();
+  const using = c.exclusionUsing ?? 'GIST';
+  const defer = `${c.exclusionDeferrable ? 'D' : ''}${c.exclusionInitiallyDeferred ? 'I' : ''}`;
+  return `EXCLUDE(${using};${els};WHERE=${where};${defer})`;
 }
 
 function diffTable(
@@ -409,12 +449,20 @@ function fkDefinitionEqual(a: NormalizedFk, b: NormalizedFk): boolean {
   );
 }
 function indexDefinitionEqual(a: NormalizedIndex, b: NormalizedIndex): boolean {
-  return (
-    a.isUnique === b.isUnique &&
-    a.indexType === b.indexType &&
-    a.columns.length === b.columns.length &&
-    a.columns.every((c, i) => c === b.columns[i])
-  );
+  if (a.isUnique !== b.isUnique) return false;
+  if (a.indexType !== b.indexType) return false;
+  if ((a.predicate ?? '') !== (b.predicate ?? '')) return false;
+  if ((a.include?.join('|') ?? '') !== (b.include?.join('|') ?? '')) return false;
+  if (a.columns.length !== b.columns.length) return false;
+  return a.columns.every((c, i) => {
+    const o = b.columns[i];
+    return (
+      c.text === o.text &&
+      (c.opclass ?? '') === (o.opclass ?? '') &&
+      (c.direction ?? 'ASC') === (o.direction ?? 'ASC') &&
+      (c.nulls ?? '') === (o.nulls ?? '')
+    );
+  });
 }
 
 // ==================== Diff → SQL ====================
@@ -578,7 +626,11 @@ export function renderDiffSql(
 function renderColumnInline(field: FieldDefinition, enums: EnumType[]): string {
   const parts: string[] = [quoteIdent(field.name), renderFieldType(field, enums)];
   if (!field.nullable && !field.isPrimaryKey) parts.push('NOT NULL');
-  if (field.defaultValue && field.defaultValue.trim()) parts.push(`DEFAULT ${field.defaultValue.trim()}`);
+  if (field.identity) {
+    parts.push(`GENERATED ${field.identity} AS IDENTITY`);
+  } else if (field.defaultValue && field.defaultValue.trim()) {
+    parts.push(`DEFAULT ${field.defaultValue.trim()}`);
+  }
   if (field.isUnique && !field.isPrimaryKey) parts.push('UNIQUE');
   if (field.checkConstraint?.trim()) parts.push(`CHECK (${field.checkConstraint.trim()})`);
   return parts.join(' ');
@@ -633,8 +685,23 @@ function renderAddForeignKey(schema: string, table: string, fk: NormalizedFk): s
 function renderCreateIndex(schema: string, table: string, idx: NormalizedIndex): string {
   const unique = idx.isUnique ? 'UNIQUE ' : '';
   const using = idx.indexType !== 'BTREE' ? ` USING ${idx.indexType}` : '';
-  const cols = idx.columns.map(quoteIdent).join(', ');
-  return `CREATE ${unique}INDEX ${quoteIdent(idx.name)} ON ${qualified(schema, table)}${using} (${cols});`;
+  const cols = idx.columns
+    .map(c => {
+      // 简单标识符（无函数调用、无空格、无引号）视为列名加引号；否则按表达式原样输出
+      const head = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c.text) ? quoteIdent(c.text) : c.text;
+      const parts = [head];
+      if (c.opclass) parts.push(c.opclass);
+      const tail: string[] = [];
+      if (c.direction === 'DESC') tail.push('DESC');
+      if (c.nulls) tail.push(`NULLS ${c.nulls}`);
+      return tail.length ? `${parts.join(' ')} ${tail.join(' ')}` : parts.join(' ');
+    })
+    .join(', ');
+  const include = idx.include?.length
+    ? ` INCLUDE (${idx.include.map(quoteIdent).join(', ')})`
+    : '';
+  const where = idx.predicate ? ` WHERE ${idx.predicate}` : '';
+  return `CREATE ${unique}INDEX ${quoteIdent(idx.name)} ON ${qualified(schema, table)}${using} (${cols})${include}${where};`;
 }
 
 function renderCreateTableBlock(table: TableDefinition, enums: EnumType[]): string[] {

@@ -5,12 +5,15 @@ import type {
   FieldDefinition,
   EnumType,
   IndexDefinition,
+  IndexColumn,
   IndexType,
   FkAction,
   PgFieldType,
   TableConstraint,
+  ExclusionElement,
+  ExclusionIndexMethod,
 } from '@/types/schema';
-import type { InspectSchemaResponse } from '@/types/api';
+import type { InspectSchemaResponse, ApiDbIndexColumn } from '@/types/api';
 
 type InspectData = InspectSchemaResponse['data'];
 
@@ -121,10 +124,19 @@ function detectSerial(type: PgFieldType, defaultValue: string | null): {
   return { type, defaultValue };
 }
 
-const VALID_INDEX_TYPES: IndexType[] = ['BTREE', 'HASH', 'GIN', 'GIST'];
+const VALID_INDEX_TYPES: IndexType[] = ['BTREE', 'HASH', 'GIN', 'GIST', 'BRIN', 'SPGIST'];
 function normalizeIndexType(raw: string): IndexType | undefined {
   const up = raw.toUpperCase();
   return VALID_INDEX_TYPES.includes(up as IndexType) ? (up as IndexType) : undefined;
+}
+
+const VALID_EXCLUSION_METHODS: ExclusionIndexMethod[] = ['GIST', 'SPGIST', 'BTREE', 'HASH'];
+function normalizeExclusionMethod(raw: string | undefined): ExclusionIndexMethod {
+  if (!raw) return 'GIST';
+  const up = raw.toUpperCase();
+  return VALID_EXCLUSION_METHODS.includes(up as ExclusionIndexMethod)
+    ? (up as ExclusionIndexMethod)
+    : 'GIST';
 }
 
 const VALID_FK_ACTIONS: FkAction[] = ['NO ACTION', 'RESTRICT', 'CASCADE', 'SET NULL', 'SET DEFAULT'];
@@ -168,7 +180,11 @@ export function inspectionToProject(data: InspectData, projectName: string): Pro
       colMap.set(c.name, fieldId);
 
       const parsed = parseType(c.type);
-      const serial = detectSerial(parsed.type, c.defaultValue);
+      // IDENTITY 列：保留整数类型，不要走 SERIAL 退化分支
+      const isIdentity = !!c.isIdentity;
+      const serial = isIdentity
+        ? { type: parsed.type, defaultValue: null as string | null }
+        : detectSerial(parsed.type, c.defaultValue);
 
       const field: FieldDefinition = {
         id: fieldId,
@@ -185,6 +201,11 @@ export function inspectionToProject(data: InspectData, projectName: string): Pro
       if (parsed.isArray) field.isArray = true;
       if (serial.defaultValue) field.defaultValue = serial.defaultValue;
       if (c.comment) field.comment = c.comment;
+      if (isIdentity) {
+        field.identity = c.identityGeneration === 'ALWAYS' ? 'ALWAYS' : 'BY DEFAULT';
+        // IDENTITY 列总是 NOT NULL；同时清除 PG 写回的伪默认值
+        field.defaultValue = undefined;
+      }
       if (parsed.type === 'USER-DEFINED' && parsed.enumName) {
         const enumId = enumByName.get(parsed.enumName) ?? enumByName.get(`${t.schema}.${parsed.enumName}`);
         if (enumId) field.enumTypeId = enumId;
@@ -227,33 +248,55 @@ export function inspectionToProject(data: InspectData, projectName: string): Pro
     }
   });
 
-  // 4) 索引：按列名解析为 fieldIds；跳过与单列 UNIQUE 约束重复的唯一索引
+  // 4) 索引：按列名解析；带 columnsDetail 时按结构化方向/opclass 还原，
+  //    否则退化为简单字段引用；表达式/复杂索引整体保留为 expression 列
   data.tables.forEach((t, ti) => {
     const table = tables[ti];
     const colMap = fieldIdByCol.get(table.id)!;
     const indexes: IndexDefinition[] = [];
     for (const idx of t.indexes) {
-      const fieldIds = idx.columns.map(c => colMap.get(c)).filter((id): id is string => !!id);
-      if (fieldIds.length === 0) continue;
+      const detail: ApiDbIndexColumn[] = idx.columnsDetail ?? idx.columns.map(c => ({ column: c }));
+      const cols: IndexColumn[] = detail.map(d => {
+        if (d.column) {
+          const fieldId = colMap.get(d.column);
+          if (fieldId) {
+            const out: IndexColumn = { fieldId };
+            if (d.direction === 'DESC') out.direction = 'DESC';
+            if (d.opclass) out.opclass = d.opclass;
+            if (d.nulls) out.nulls = d.nulls;
+            return out;
+          }
+          // 列名未匹配到字段（极少见，回退为表达式保留原值）
+          return { expression: d.column };
+        }
+        return {
+          expression: d.expression ?? '',
+          ...(d.opclass ? { opclass: d.opclass } : {}),
+          ...(d.direction === 'DESC' ? { direction: 'DESC' as const } : {}),
+          ...(d.nulls ? { nulls: d.nulls } : {}),
+        };
+      }).filter(c => c.fieldId || (c.expression && c.expression.trim()));
+      if (cols.length === 0) continue;
 
       // 单列唯一索引若对应字段已标记 UNIQUE，则由列级约束覆盖，避免重复
-      if (idx.isUnique && fieldIds.length === 1) {
-        const f = table.fields.find(ff => ff.id === fieldIds[0]);
+      if (idx.isUnique && cols.length === 1 && cols[0].fieldId) {
+        const f = table.fields.find(ff => ff.id === cols[0].fieldId);
         if (f?.isUnique) continue;
       }
 
       indexes.push({
         id: uuidv4(),
         name: idx.name,
-        fieldIds,
+        columns: cols,
         isUnique: idx.isUnique,
         indexType: normalizeIndexType(idx.indexType),
+        predicate: idx.predicate?.trim() || undefined,
       });
     }
     table.indexes = indexes;
   });
 
-  // 5) 表级约束（UNIQUE / CHECK）：按列名映射到 fieldIds；后端已过滤单列重复项
+  // 5) 表级约束（UNIQUE / CHECK / EXCLUDE）：按列名映射到 fieldIds；后端已过滤单列重复项
   data.tables.forEach((t, ti) => {
     const table = tables[ti];
     const colMap = fieldIdByCol.get(table.id)!;
@@ -265,9 +308,30 @@ export function inspectionToProject(data: InspectData, projectName: string): Pro
           .filter((id): id is string => !!id);
         if (fieldIds.length === 0) continue;
         constraints.push({ id: uuidv4(), name: tc.name, kind: 'UNIQUE', fieldIds });
-      } else {
+      } else if (tc.kind === 'CHECK') {
         if (!tc.expression?.trim()) continue;
         constraints.push({ id: uuidv4(), name: tc.name, kind: 'CHECK', expression: tc.expression });
+      } else {
+        // EXCLUDE
+        const els: ExclusionElement[] = (tc.exclusionElements ?? []).map(el => {
+          if (el.column) {
+            const fid = colMap.get(el.column);
+            if (fid) return { fieldId: fid, operator: el.operator };
+            return { expression: el.column, operator: el.operator };
+          }
+          return { expression: el.expression ?? '', operator: el.operator };
+        }).filter(el => (el.fieldId || (el.expression && el.expression.trim())) && el.operator);
+        if (els.length === 0) continue;
+        constraints.push({
+          id: uuidv4(),
+          name: tc.name,
+          kind: 'EXCLUDE',
+          exclusionElements: els,
+          exclusionUsing: normalizeExclusionMethod(tc.exclusionUsing),
+          exclusionWhere: tc.exclusionWhere?.trim() || undefined,
+          exclusionDeferrable: !!tc.exclusionDeferrable,
+          exclusionInitiallyDeferred: !!tc.exclusionInitiallyDeferred,
+        });
       }
     }
     if (constraints.length > 0) table.constraints = constraints;

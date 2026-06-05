@@ -32,6 +32,11 @@ export interface ForeignKeyConfig {
   constraintName?: string;
 }
 
+// ==================== IDENTITY 列（Phase 8） ====================
+
+/** PG10+ 标准 IDENTITY 列；仅 SMALLINT / INTEGER / BIGINT 有意义 */
+export type IdentityKind = 'ALWAYS' | 'BY DEFAULT';
+
 // ==================== 字段定义 ====================
 
 export interface FieldDefinition {
@@ -51,6 +56,8 @@ export interface FieldDefinition {
   foreignKey?: ForeignKeyConfig;
   comment?: string;
   order: number;
+  /** GENERATED ALWAYS / BY DEFAULT AS IDENTITY；与 defaultValue 互斥 */
+  identity?: IdentityKind;
 }
 
 // ==================== ENUM 类型 ====================
@@ -65,26 +72,59 @@ export interface EnumType {
 
 // ==================== 索引定义 ====================
 
-export type IndexType = 'BTREE' | 'HASH' | 'GIN' | 'GIST';
+export type IndexType = 'BTREE' | 'HASH' | 'GIN' | 'GIST' | 'BRIN' | 'SPGIST';
+export type IndexDirection = 'ASC' | 'DESC';
+export type IndexNullsOrder = 'FIRST' | 'LAST';
+
+/** 索引列：字段引用或自由表达式，二选一 */
+export interface IndexColumn {
+  fieldId?: string;
+  expression?: string;            // 如 "LOWER(name)"、"(payload->>'kind')"
+  direction?: IndexDirection;     // 默认 ASC（默认值不输出）
+  opclass?: string;               // 如 'jsonb_path_ops'、'gin_trgm_ops'
+  nulls?: IndexNullsOrder;        // 显式输出时附加 NULLS FIRST/LAST
+}
 
 export interface IndexDefinition {
   id: string;
-  name: string;
-  fieldIds: string[];
+  name: string;                   // 空字符串则按 idx_<table>_<col1>_<col2>... 自动命名
+  columns: IndexColumn[];         // 结构化列定义（Phase 8 升级）
   isUnique: boolean;
-  indexType?: IndexType;
+  indexType?: IndexType;          // 默认 BTREE
+  predicate?: string;             // 部分索引 WHERE 子句（不含 WHERE 关键字）
+  include?: string[];             // INCLUDE 覆盖列名
+  comment?: string;
 }
 
 // ==================== 表级约束 ====================
 
-export type TableConstraintKind = 'UNIQUE' | 'CHECK';
+export type TableConstraintKind = 'UNIQUE' | 'CHECK' | 'EXCLUDE';
+
+/** EXCLUDE USING <method> 支持的索引方法 */
+export type ExclusionIndexMethod = 'GIST' | 'SPGIST' | 'BTREE' | 'HASH';
+
+/** EXCLUDE 子句中的一个元素：列/表达式 + 比较操作符 */
+export interface ExclusionElement {
+  fieldId?: string;
+  expression?: string;
+  /** WITH 后的操作符：'='、'<>'、'&&'、'@>'、'<@' 等；不带引号 */
+  operator: string;
+}
 
 export interface TableConstraint {
   id: string;
-  name?: string;             // CONSTRAINT <name>，省略时由生成器构造 uq_/chk_ 前缀名
+  name?: string;             // CONSTRAINT <name>，省略时由生成器构造 uq_/chk_/ex_ 前缀名
   kind: TableConstraintKind;
   fieldIds?: string[];       // UNIQUE 必填（至少 2 列）；CHECK 选填，仅作 UI 关联元信息
   expression?: string;       // CHECK 必填，不含 CHECK 关键字与外层括号
+
+  // EXCLUDE 专用字段（Phase 8）
+  exclusionElements?: ExclusionElement[];
+  exclusionUsing?: ExclusionIndexMethod;   // 默认 GIST
+  exclusionWhere?: string;                 // 可选谓词，不含 WHERE 关键字与外层括号
+  exclusionDeferrable?: boolean;
+  exclusionInitiallyDeferred?: boolean;
+
   comment?: string;
 }
 

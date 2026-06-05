@@ -47,6 +47,36 @@ function now(): string {
   return new Date().toISOString();
 }
 
+/**
+ * 旧索引（Phase 7 之前）以 `fieldIds: string[]` 表达；Phase 8 升级为结构化 `columns`。
+ * loadProject 入口拦截，一次性规范化；保存时只写新结构。
+ */
+function migrateIndex(idx: unknown): IndexDefinition {
+  const raw = idx as Partial<IndexDefinition> & { fieldIds?: string[] };
+  if (Array.isArray(raw.columns)) {
+    return raw as IndexDefinition;
+  }
+  const fieldIds = Array.isArray(raw.fieldIds) ? raw.fieldIds : [];
+  return {
+    id: raw.id ?? '',
+    name: raw.name ?? '',
+    isUnique: !!raw.isUnique,
+    indexType: raw.indexType,
+    columns: fieldIds.map(fid => ({ fieldId: fid })),
+  };
+}
+
+/** 规范化整个 ProjectFile：目前只处理索引结构升级，未来类似拦截可继续加 */
+function normalizeProject(file: ProjectFile): ProjectFile {
+  return {
+    ...file,
+    tables: file.tables.map(t => ({
+      ...t,
+      indexes: (t.indexes ?? []).map(migrateIndex),
+    })),
+  };
+}
+
 function createEmptyProject(name: string): ProjectFile {
   return {
     $schema: 'https://dbdesign/schema/v1.json',
@@ -81,7 +111,8 @@ interface ProjectState {
   reorderFields: (tableId: string, fromIndex: number, toIndex: number) => void;
 
   // 索引操作
-  addIndex: (tableId: string, index: Omit<IndexDefinition, 'id'>) => void;
+  addIndex: (tableId: string, index: Omit<IndexDefinition, 'id'>) => string;
+  updateIndex: (tableId: string, indexId: string, changes: Partial<Omit<IndexDefinition, 'id'>>) => void;
   deleteIndex: (tableId: string, indexId: string) => void;
 
   // 表级约束操作（UNIQUE / CHECK）
@@ -114,7 +145,7 @@ export const useProjectStore = create<ProjectState>()(
       },
 
       loadProject: (file) => {
-        set({ project: file, isDirty: false });
+        set({ project: normalizeProject(file), isDirty: false });
       },
 
       updateProjectMeta: (changes) => {
@@ -319,14 +350,39 @@ export const useProjectStore = create<ProjectState>()(
 
       addIndex: (tableId, index) => {
         const { project } = get();
-        if (!project) return;
-        const newIndex: IndexDefinition = { ...index, id: uuidv4() };
+        if (!project) return '';
+        const id = uuidv4();
+        const newIndex: IndexDefinition = { ...index, id };
         set({
           project: {
             ...project,
             tables: project.tables.map(t =>
               t.id === tableId
                 ? { ...t, indexes: [...t.indexes, newIndex], updatedAt: now() }
+                : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+        return id;
+      },
+
+      updateIndex: (tableId, indexId, changes) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? {
+                    ...t,
+                    indexes: (t.indexes ?? []).map(i =>
+                      i.id === indexId ? { ...i, ...changes } : i
+                    ),
+                    updatedAt: now(),
+                  }
                 : t
             ),
             updatedAt: now(),
