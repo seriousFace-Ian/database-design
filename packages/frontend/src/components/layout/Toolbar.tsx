@@ -6,9 +6,14 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Input,
+  Modal,
+  Form,
   App,
+  Dropdown,
   theme,
 } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   SaveOutlined,
   FolderOpenOutlined,
@@ -21,12 +26,15 @@ import {
   RedoOutlined,
   CloudUploadOutlined,
   CloudDownloadOutlined,
-  DisconnectOutlined,
+  PoweroffOutlined,
   ThunderboltOutlined,
   ImportOutlined,
   DiffOutlined,
-  BulbOutlined,
-  BulbFilled,
+  SunOutlined,
+  MoonOutlined,
+  FileOutlined,
+  DownOutlined,
+  CheckCircleFilled,
 } from '@ant-design/icons';
 import { useProjectStore } from '@/store/projectStore';
 import { useUiStore } from '@/store/uiStore';
@@ -41,7 +49,7 @@ const { Text } = Typography;
 const Toolbar: React.FC = () => {
   const { message, modal } = App.useApp();
   const { token } = theme.useToken();
-  const { project, isDirty, loadProject: loadProjectIntoStore, markSaved } = useProjectStore();
+  const { project, isDirty, loadProject: loadProjectIntoStore, markSaved, updateProjectMeta } = useProjectStore();
   const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen, setExecuteDdlOpen, setSqlDiffOpen, themeMode, toggleThemeMode } = useUiStore();
   const { config: dbConfig, status: dbStatus, disconnect } = useConnectionStore();
   // zundo temporal 暂时直接用 store 内置
@@ -56,7 +64,27 @@ const Toolbar: React.FC = () => {
   const [dbSaving, setDbSaving] = useState(false);
   const [dbLoading, setDbLoading] = useState(false);
   const [dbImporting, setDbImporting] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
   const dbConnected = dbStatus === 'connected';
+
+  const openRename = () => {
+    if (!project) return;
+    setRenameDraft(project.name);
+    setRenameOpen(true);
+  };
+
+  const submitRename = () => {
+    const next = renameDraft.trim();
+    if (!next) {
+      message.warning('项目名不能为空');
+      return;
+    }
+    if (project && next !== project.name) {
+      updateProjectMeta({ name: next });
+    }
+    setRenameOpen(false);
+  };
 
   const handleNew = () => {
     newProject('新建项目');
@@ -149,15 +177,49 @@ const Toolbar: React.FC = () => {
       {/* 左：项目名 */}
       <Space size={8}>
         <DatabaseOutlined style={{ fontSize: 18, color: '#1677ff' }} />
-        <Text strong style={{ fontSize: 15 }}>
-          {project?.name ?? 'DB Design'}
-        </Text>
+        {project ? (
+          <Tooltip title="点击修改项目名" mouseEnterDelay={0.4}>
+            <Text
+              strong
+              style={{ fontSize: 15, cursor: 'pointer' }}
+              onClick={openRename}
+            >
+              {project.name}
+            </Text>
+          </Tooltip>
+        ) : (
+          <Text strong style={{ fontSize: 15 }}>DB Design</Text>
+        )}
         {isDirty && (
           <Tag color="orange" style={{ marginLeft: 4 }}>
             未保存
           </Tag>
         )}
       </Space>
+      <Modal
+        title="修改项目名"
+        open={renameOpen}
+        onOk={submitRename}
+        onCancel={() => setRenameOpen(false)}
+        okText="确定"
+        cancelText="取消"
+        destroyOnClose
+        width={420}
+      >
+        <Form layout="vertical" onFinish={submitRename}>
+          <Form.Item label="项目名" style={{ marginBottom: 0 }}>
+            <Input
+              autoFocus
+              value={renameDraft}
+              maxLength={80}
+              showCount
+              placeholder="请输入项目名"
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onPressEnter={submitRename}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* 中：视图切换 */}
       <Segmented
@@ -189,26 +251,45 @@ const Toolbar: React.FC = () => {
         </Tooltip>
         <Tooltip title={themeMode === 'dark' ? '切换到日间模式' : '切换到夜间模式'}>
           <Button
-            icon={themeMode === 'dark' ? <BulbFilled /> : <BulbOutlined />}
+            icon={themeMode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
             size="small"
             onClick={toggleThemeMode}
           />
         </Tooltip>
-        <Button icon={<PlusOutlined />} size="small" onClick={handleNew}>
-          新建
-        </Button>
-        <Button icon={<FolderOpenOutlined />} size="small" onClick={loadProject}>
-          打开
-        </Button>
-        <Button
-          icon={<SaveOutlined />}
-          size="small"
-          type={isDirty ? 'primary' : 'default'}
-          onClick={saveProject}
-          disabled={!project}
+        <Dropdown
+          trigger={['hover']}
+          menu={{
+            items: [
+              {
+                key: 'new',
+                icon: <PlusOutlined />,
+                label: '新建',
+                onClick: handleNew,
+              },
+              {
+                key: 'open',
+                icon: <FolderOpenOutlined />,
+                label: '打开',
+                onClick: loadProject,
+              },
+              {
+                key: 'save',
+                icon: <SaveOutlined />,
+                label: isDirty ? '保存 *' : '保存',
+                disabled: !project,
+                onClick: saveProject,
+              },
+            ] as MenuProps['items'],
+          }}
         >
-          保存
-        </Button>
+          <Button
+            icon={<FileOutlined />}
+            size="small"
+            type={isDirty ? 'primary' : 'default'}
+          >
+            文件 <DownOutlined style={{ fontSize: 10 }} />
+          </Button>
+        </Dropdown>
         <Button
           icon={<CodeOutlined />}
           size="small"
@@ -237,19 +318,52 @@ const Toolbar: React.FC = () => {
             对比
           </Button>
         </Tooltip>
-        <Button
-          icon={<DatabaseOutlined />}
-          size="small"
-          onClick={() => setConnectionPanelOpen(true)}
-        >
-          连接
-        </Button>
-        {dbConnected && (
-          <Tooltip title={`已连接：${dbConfig.username}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`}>
-            <Tag color="success" style={{ marginRight: 0 }}>
-              {dbConfig.database || '已连接'}
-            </Tag>
-          </Tooltip>
+        {dbConnected ? (
+          <Dropdown
+            trigger={['hover']}
+            menu={{
+              items: [
+                {
+                  key: 'connect',
+                  icon: <DatabaseOutlined />,
+                  label: '连接',
+                  onClick: () => setConnectionPanelOpen(true),
+                },
+                {
+                  key: 'service',
+                  icon: <CheckCircleFilled style={{ color: token.colorSuccess }} />,
+                  label: (
+                    <Tooltip
+                      title={`${dbConfig.username}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`}
+                      placement="left"
+                    >
+                      <span>{dbConfig.database || '已连接'}</span>
+                    </Tooltip>
+                  ),
+                  disabled: true,
+                },
+                {
+                  key: 'import',
+                  icon: <ImportOutlined />,
+                  label: dbImporting ? '导入中…' : '导入',
+                  disabled: dbImporting,
+                  onClick: handleImportFromDb,
+                },
+              ] as MenuProps['items'],
+            }}
+          >
+            <Button icon={<DatabaseOutlined />} size="small">
+              数据库 <DownOutlined style={{ fontSize: 10 }} />
+            </Button>
+          </Dropdown>
+        ) : (
+          <Button
+            icon={<DatabaseOutlined />}
+            size="small"
+            onClick={() => setConnectionPanelOpen(true)}
+          >
+            连接
+          </Button>
         )}
         <Tooltip title={dbConnected ? '将当前设计保存到所连数据库' : '请先在「连接」中测试通过'}>
           <Button
@@ -273,21 +387,10 @@ const Toolbar: React.FC = () => {
             读库
           </Button>
         </Tooltip>
-        <Tooltip title={dbConnected ? '逆向读取数据库现有结构为设计' : '请先在「连接」中测试通过'}>
-          <Button
-            icon={<ImportOutlined />}
-            size="small"
-            loading={dbImporting}
-            onClick={handleImportFromDb}
-            disabled={!dbConnected}
-          >
-            导入
-          </Button>
-        </Tooltip>
         {dbConnected && (
           <Tooltip title="断开连接并刷新全局">
             <Button
-              icon={<DisconnectOutlined />}
+              icon={<PoweroffOutlined />}
               size="small"
               danger
               onClick={handleDisconnect}
