@@ -68,6 +68,22 @@ const Toolbar: React.FC = () => {
   const [renameDraft, setRenameDraft] = useState('');
   const dbConnected = dbStatus === 'connected';
 
+  // 当存在未保存修改时，先弹确认；否则直接执行
+  const confirmIfDirty = (opts: { title: string; content: string; onOk: () => void | Promise<void> }) => {
+    if (!isDirty) {
+      void opts.onOk();
+      return;
+    }
+    modal.confirm({
+      title: opts.title,
+      content: opts.content,
+      okText: '继续（丢弃修改）',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: opts.onOk,
+    });
+  };
+
   const openRename = () => {
     if (!project) return;
     setRenameDraft(project.name);
@@ -87,7 +103,19 @@ const Toolbar: React.FC = () => {
   };
 
   const handleNew = () => {
-    newProject('新建项目');
+    confirmIfDirty({
+      title: '当前项目有未保存修改',
+      content: '新建项目将替换当前内存中的设计，未保存的修改会丢失。',
+      onOk: () => newProject('新建项目'),
+    });
+  };
+
+  const handleOpenFile = () => {
+    confirmIfDirty({
+      title: '当前项目有未保存修改',
+      content: '打开本地文件将替换当前内存中的设计，未保存的修改会丢失。',
+      onOk: loadProject,
+    });
   };
 
   const handleSaveToDb = async () => {
@@ -104,19 +132,25 @@ const Toolbar: React.FC = () => {
     }
   };
 
-  const handleLoadFromDb = async () => {
-    setDbLoading(true);
-    try {
-      const res = await loadProjectFromDb(dbConfig);
-      if (res.found && res.project) {
-        loadProjectIntoStore(res.project);
-        message.success('已从数据库加载设计');
-      } else {
-        message.info(`数据库 ${dbConfig.database} 中暂无设计配置`);
-      }
-    } finally {
-      setDbLoading(false);
-    }
+  const handleLoadFromDb = () => {
+    confirmIfDirty({
+      title: '当前项目有未保存修改',
+      content: '从数据库读取设计将替换当前内存中的设计，未保存的修改会丢失。',
+      onOk: async () => {
+        setDbLoading(true);
+        try {
+          const res = await loadProjectFromDb(dbConfig);
+          if (res.found && res.project) {
+            loadProjectIntoStore(res.project);
+            message.success('已从数据库加载设计');
+          } else {
+            message.info(`数据库 ${dbConfig.database} 中暂无设计配置`);
+          }
+        } finally {
+          setDbLoading(false);
+        }
+      },
+    });
   };
 
   const handleImportFromDb = () => {
@@ -156,6 +190,8 @@ const Toolbar: React.FC = () => {
       okButtonProps: { danger: true },
       onOk: () => {
         disconnect();
+        // 用户已显式确认放弃未保存修改，跳过 beforeunload 的二次拦截
+        markSaved();
         window.location.reload();
       },
     });
@@ -270,7 +306,7 @@ const Toolbar: React.FC = () => {
                 key: 'open',
                 icon: <FolderOpenOutlined />,
                 label: '打开',
-                onClick: loadProject,
+                onClick: handleOpenFile,
               },
               {
                 key: 'save',
@@ -352,9 +388,17 @@ const Toolbar: React.FC = () => {
               ] as MenuProps['items'],
             }}
           >
-            <Button icon={<DatabaseOutlined />} size="small">
-              数据库 <DownOutlined style={{ fontSize: 10 }} />
-            </Button>
+            <Tooltip
+              title={`${dbConfig.username}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`}
+              mouseEnterDelay={0.4}
+            >
+              <Button icon={<DatabaseOutlined />} size="small">
+                <span style={{ maxWidth: 140, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}>
+                  {dbConfig.database || '已连接'}
+                </span>
+                <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
+              </Button>
+            </Tooltip>
           </Dropdown>
         ) : (
           <Button

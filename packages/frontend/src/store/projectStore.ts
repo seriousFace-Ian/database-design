@@ -8,6 +8,7 @@ import type {
   EnumType,
   IndexDefinition,
   TableConstraint,
+  TableCategory,
 } from '@/types/schema';
 
 const DEFAULT_FIELD: Omit<FieldDefinition, 'id' | 'order'> = {
@@ -68,10 +69,16 @@ function migrateIndex(idx: unknown): IndexDefinition {
 
 /** 规范化整个 ProjectFile：目前只处理索引结构升级，未来类似拦截可继续加 */
 function normalizeProject(file: ProjectFile): ProjectFile {
+  const categories = Array.isArray(file.categories) ? file.categories : [];
+  const validCategoryIds = new Set(categories.map(c => c.id));
   return {
     ...file,
+    categories,
     tables: file.tables.map(t => ({
       ...t,
+      // 引用已不存在的分组的表，回落为「未分类」
+      categoryId:
+        t.categoryId && validCategoryIds.has(t.categoryId) ? t.categoryId : undefined,
       indexes: (t.indexes ?? []).map(migrateIndex),
     })),
   };
@@ -86,6 +93,7 @@ function createEmptyProject(name: string): ProjectFile {
     updatedAt: now(),
     enums: [],
     tables: [],
+    categories: [],
   };
 }
 
@@ -124,6 +132,13 @@ interface ProjectState {
   addEnum: (enumDef: Omit<EnumType, 'id'>) => string;
   updateEnum: (enumId: string, changes: Partial<Omit<EnumType, 'id'>>) => void;
   deleteEnum: (enumId: string) => void;
+
+  // 数据表分组（Sidebar 文件夹）
+  addCategory: (name: string) => string;
+  renameCategory: (categoryId: string, name: string) => void;
+  deleteCategory: (categoryId: string) => void;
+  reorderCategories: (fromIndex: number, toIndex: number) => void;
+  moveTableToCategory: (tableId: string, categoryId: string | null) => void;
 
   // 图表布局
   updateTablePosition: (tableId: string, position: { x: number; y: number }) => void;
@@ -517,6 +532,91 @@ export const useProjectStore = create<ProjectState>()(
             ...project,
             enums: project.enums.filter(e => e.id !== enumId),
             tables,
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      addCategory: (name) => {
+        const { project } = get();
+        if (!project) return '';
+        const id = uuidv4();
+        const existing = project.categories ?? [];
+        const newCategory: TableCategory = { id, name, order: existing.length };
+        set({
+          project: {
+            ...project,
+            categories: [...existing, newCategory],
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+        return id;
+      },
+
+      renameCategory: (categoryId, name) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            categories: (project.categories ?? []).map(c =>
+              c.id === categoryId ? { ...c, name } : c
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      deleteCategory: (categoryId) => {
+        const { project } = get();
+        if (!project) return;
+        const remaining = (project.categories ?? [])
+          .filter(c => c.id !== categoryId)
+          .map((c, i) => ({ ...c, order: i }));
+        set({
+          project: {
+            ...project,
+            categories: remaining,
+            tables: project.tables.map(t =>
+              t.categoryId === categoryId ? { ...t, categoryId: undefined } : t
+            ),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      reorderCategories: (fromIndex, toIndex) => {
+        const { project } = get();
+        if (!project) return;
+        const list = [...(project.categories ?? [])];
+        if (fromIndex < 0 || fromIndex >= list.length) return;
+        const [moved] = list.splice(fromIndex, 1);
+        list.splice(toIndex, 0, moved);
+        set({
+          project: {
+            ...project,
+            categories: list.map((c, i) => ({ ...c, order: i })),
+            updatedAt: now(),
+          },
+          isDirty: true,
+        });
+      },
+
+      moveTableToCategory: (tableId, categoryId) => {
+        const { project } = get();
+        if (!project) return;
+        set({
+          project: {
+            ...project,
+            tables: project.tables.map(t =>
+              t.id === tableId
+                ? { ...t, categoryId: categoryId ?? undefined, updatedAt: now() }
+                : t
+            ),
             updatedAt: now(),
           },
           isDirty: true,

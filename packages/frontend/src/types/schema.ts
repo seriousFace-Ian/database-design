@@ -139,8 +139,21 @@ export interface TableDefinition {
   indexes: IndexDefinition[];
   constraints?: TableConstraint[]; // 表级 UNIQUE / CHECK；旧 JSON 缺失时视作 []
   position?: { x: number; y: number };
+  /** 所属 Sidebar 分组 id；undefined = 未分类 */
+  categoryId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ==================== 数据表分组（Sidebar 文件夹） ====================
+
+export interface TableCategory {
+  id: string;
+  name: string;
+  /** 分组在 Sidebar 中的排序，从 0 开始 */
+  order: number;
+  /** 预留：自定义颜色；本期 UI 暂不消费 */
+  color?: string;
 }
 
 // ==================== 项目文件根结构 ====================
@@ -159,5 +172,7 @@ export interface ProjectFile {
   updatedAt: string;
   enums: EnumType[];
   tables: TableDefinition[];
+  /** Sidebar 表分组；老项目缺失时由 normalizeProject 回填为 [] */
+  categories?: TableCategory[];
   diagramLayout?: DiagramLayout;
 }

@@ -4,11 +4,16 @@ import { persist } from 'zustand/middleware';
 export type ActiveView = 'designer' | 'diagram';
 export type ThemeMode = 'light' | 'dark';
 
+export const SIDEBAR_WIDTH_MIN = 200;
+export const SIDEBAR_WIDTH_MAX = 520;
+export const SIDEBAR_WIDTH_DEFAULT = 240;
+
 interface UiState {
   activeView: ActiveView;
   selectedTableId: string | null;
   selectedFieldId: string | null;
   sidebarCollapsed: boolean;
+  sidebarWidth: number;
   sqlPreviewOpen: boolean;
   connectionPanelOpen: boolean;
   enumManagerOpen: boolean;
@@ -20,6 +25,7 @@ interface UiState {
   selectTable: (tableId: string | null) => void;
   selectField: (fieldId: string | null) => void;
   toggleSidebar: () => void;
+  setSidebarWidth: (width: number) => void;
   setSqlPreviewOpen: (open: boolean) => void;
   setConnectionPanelOpen: (open: boolean) => void;
   setEnumManagerOpen: (open: boolean) => void;
@@ -36,6 +42,7 @@ export const useUiStore = create<UiState>()(
       selectedTableId: null,
       selectedFieldId: null,
       sidebarCollapsed: false,
+      sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
       sqlPreviewOpen: false,
       connectionPanelOpen: false,
       enumManagerOpen: false,
@@ -47,6 +54,10 @@ export const useUiStore = create<UiState>()(
       selectTable: (tableId) => set({ selectedTableId: tableId, selectedFieldId: null }),
       selectField: (fieldId) => set({ selectedFieldId: fieldId }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setSidebarWidth: (width) =>
+        set({
+          sidebarWidth: Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(width))),
+        }),
       setSqlPreviewOpen: (open) => set({ sqlPreviewOpen: open }),
       setConnectionPanelOpen: (open) => set({ connectionPanelOpen: open }),
       setEnumManagerOpen: (open) => set({ enumManagerOpen: open }),
@@ -57,7 +68,7 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'dbdesign-ui',
-      partialize: (s) => ({ themeMode: s.themeMode }),
+      partialize: (s) => ({ themeMode: s.themeMode, sidebarWidth: s.sidebarWidth }),
     }
   )
 );

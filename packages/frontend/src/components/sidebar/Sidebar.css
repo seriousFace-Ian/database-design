@@ -1,0 +1,35 @@
+/* Sidebar Tree 视觉微调 —— 让 switcher / icon / title 在同一中心线 */
+
+.sidebar-tree.ant-tree .ant-tree-treenode {
+  align-items: center;
+  padding: 2px 0;
+  width: 100%;
+}
+
+.sidebar-tree.ant-tree .ant-tree-node-content-wrapper {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  width: 0; /* 让 flex:1 子节点可以收缩 */
+  flex: 1;
+  padding-left: 4px;
+}
+
+.sidebar-tree.ant-tree .ant-tree-node-content-wrapper:hover {
+  background: var(--ant-control-item-bg-hover, rgba(0, 0, 0, 0.04));
+}
+
+.sidebar-tree.ant-tree .ant-tree-switcher {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: auto;
+  line-height: 1;
+}
+
+/* 自定义：高亮当前正在被拖入的分组 */
+.sidebar-tree .sidebar-drop-target {
+  background: var(--ant-color-primary-bg, #e6f4ff);
+  border: 1px dashed var(--ant-color-primary, #1677ff);
+  border-radius: 4px;
+}

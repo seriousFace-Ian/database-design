@@ -1,25 +1,26 @@
 import React, { useState } from 'react';
 import { Typography, Dropdown, Modal, Input, Space, theme } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   TableOutlined,
   EditOutlined,
   DeleteOutlined,
   MoreOutlined,
+  SwapOutlined,
 } from '@ant-design/icons';
 import { useProjectStore } from '@/store/projectStore';
 import { useUiStore } from '@/store/uiStore';
-import type { TableDefinition } from '@/types/schema';
+import type { TableCategory, TableDefinition } from '@/types/schema';
 
 const { Text } = Typography;
 
 interface Props {
   table: TableDefinition;
-  isSelected: boolean;
-  onSelect: () => void;
+  categories: TableCategory[];
 }
 
-const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
-  const { updateTable, deleteTable } = useProjectStore();
+const TableListItem: React.FC<Props> = ({ table, categories }) => {
+  const { updateTable, deleteTable, moveTableToCategory } = useProjectStore();
   const { selectTable } = useUiStore();
   const { token } = theme.useToken();
   const [renaming, setRenaming] = useState(false);
@@ -47,27 +48,74 @@ const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
     });
   };
 
+  // 「移动到分组」子菜单：列出所有分组 + 「移出分组」
+  const moveMenuItems: MenuProps['items'] = [
+    ...categories.map(c => ({
+      key: `move-${c.id}`,
+      label: c.name,
+      disabled: table.categoryId === c.id,
+      onClick: ({ domEvent }: { domEvent: React.MouseEvent | React.KeyboardEvent }) => {
+        domEvent.stopPropagation();
+        moveTableToCategory(table.id, c.id);
+      },
+    })),
+    ...(categories.length > 0 ? [{ type: 'divider' as const, key: 'divider' }] : []),
+    {
+      key: 'move-uncategorized',
+      label: '移出分组（未分类）',
+      disabled: !table.categoryId,
+      onClick: ({ domEvent }: { domEvent: React.MouseEvent | React.KeyboardEvent }) => {
+        domEvent.stopPropagation();
+        moveTableToCategory(table.id, null);
+      },
+    },
+  ];
+
+  const menuItems: MenuProps['items'] = [
+    {
+      key: 'rename',
+      icon: <EditOutlined />,
+      label: '重命名',
+      onClick: ({ domEvent }) => {
+        domEvent.stopPropagation();
+        setRenameValue(table.name);
+        setRenaming(true);
+      },
+    },
+    {
+      key: 'move',
+      icon: <SwapOutlined />,
+      label: '移动到分组',
+      children: moveMenuItems,
+    },
+    {
+      key: 'delete',
+      icon: <DeleteOutlined />,
+      label: '删除',
+      danger: true,
+      onClick: ({ domEvent }) => {
+        domEvent.stopPropagation();
+        handleDelete();
+      },
+    },
+  ];
+
   return (
     <div
-      onClick={onSelect}
       style={{
         display: 'flex',
         alignItems: 'center',
-        padding: '6px 12px',
-        cursor: 'pointer',
-        background: isSelected ? token.controlItemBgActive : 'transparent',
-        borderLeft: `3px solid ${isSelected ? token.colorPrimary : 'transparent'}`,
-        transition: 'all 0.15s',
-      }}
-      onMouseEnter={e => {
-        if (!isSelected) (e.currentTarget as HTMLElement).style.background = token.controlItemBgHover;
-      }}
-      onMouseLeave={e => {
-        if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent';
+        padding: '0 4px 0 0',
+        width: '100%',
+        boxSizing: 'border-box',
       }}
     >
       <TableOutlined
-        style={{ marginRight: 8, color: isSelected ? token.colorPrimary : token.colorTextSecondary, flexShrink: 0 }}
+        style={{
+          marginRight: 6,
+          color: token.colorTextSecondary,
+          flexShrink: 0,
+        }}
       />
 
       {renaming ? (
@@ -79,7 +127,9 @@ const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
           onChange={e => setRenameValue(e.target.value)}
           onBlur={handleRename}
           onPressEnter={handleRename}
-          onKeyDown={e => { if (e.key === 'Escape') setRenaming(false); }}
+          onKeyDown={e => {
+            if (e.key === 'Escape') setRenaming(false);
+          }}
           style={{ flex: 1 }}
         />
       ) : (
@@ -87,7 +137,7 @@ const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
           style={{
             flex: 1,
             fontSize: 13,
-            color: isSelected ? token.colorPrimary : token.colorText,
+            color: token.colorText,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -102,33 +152,7 @@ const TableListItem: React.FC<Props> = ({ table, isSelected, onSelect }) => {
         </Text>
       )}
 
-      <Dropdown
-        trigger={['click']}
-        menu={{
-          items: [
-            {
-              key: 'rename',
-              icon: <EditOutlined />,
-              label: '重命名',
-              onClick: ({ domEvent }) => {
-                domEvent.stopPropagation();
-                setRenameValue(table.name);
-                setRenaming(true);
-              },
-            },
-            {
-              key: 'delete',
-              icon: <DeleteOutlined />,
-              label: '删除',
-              danger: true,
-              onClick: ({ domEvent }) => {
-                domEvent.stopPropagation();
-                handleDelete();
-              },
-            },
-          ],
-        }}
-      >
+      <Dropdown trigger={['click']} menu={{ items: menuItems }}>
         <Space
           onClick={e => e.stopPropagation()}
           style={{
