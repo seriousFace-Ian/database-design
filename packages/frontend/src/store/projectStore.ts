@@ -10,39 +10,20 @@ import type {
   TableConstraint,
   TableCategory,
 } from '@/types/schema';
+import {
+  AUDIT_FIELD_CATALOG,
+  type AuditFieldKey,
+  type AuditOwnerType,
+} from '@/utils/auditFields';
 
 const DEFAULT_FIELD: Omit<FieldDefinition, 'id' | 'order'> = {
   name: '',
   type: 'VARCHAR',
   length: 255,
-  nullable: true,
+  nullable: false,
   isPrimaryKey: false,
   isUnique: false,
 };
-
-// 一键审计字段模板。created_by 默认 BIGINT 可空，方便用户后续按业务关联到用户表外键
-const AUDIT_FIELD_TEMPLATES: ReadonlyArray<Omit<FieldDefinition, 'id' | 'order'>> = [
-  {
-    name: 'created_at', type: 'TIMESTAMPTZ',
-    nullable: false, isPrimaryKey: false, isUnique: false,
-    defaultValue: 'now()', comment: '创建时间',
-  },
-  {
-    name: 'updated_at', type: 'TIMESTAMPTZ',
-    nullable: false, isPrimaryKey: false, isUnique: false,
-    defaultValue: 'now()', comment: '更新时间',
-  },
-  {
-    name: 'deleted_at', type: 'TIMESTAMPTZ',
-    nullable: true, isPrimaryKey: false, isUnique: false,
-    comment: '软删除时间（NULL = 未删除）',
-  },
-  {
-    name: 'created_by', type: 'BIGINT',
-    nullable: true, isPrimaryKey: false, isUnique: false,
-    comment: '创建者用户 ID',
-  },
-];
 
 function now(): string {
   return new Date().toISOString();
@@ -113,7 +94,10 @@ interface ProjectState {
 
   // 字段操作
   addField: (tableId: string) => string;
-  addAuditFields: (tableId: string) => { added: string[]; skipped: string[] };
+  addAuditFields: (
+    tableId: string,
+    options: { keys: AuditFieldKey[]; ownerType: AuditOwnerType }
+  ) => { added: string[]; skipped: string[] };
   updateField: (tableId: string, fieldId: string, changes: Partial<FieldDefinition>) => void;
   deleteField: (tableId: string, fieldId: string) => void;
   reorderFields: (tableId: string, fromIndex: number, toIndex: number) => void;
@@ -258,19 +242,23 @@ export const useProjectStore = create<ProjectState>()(
         return fieldId;
       },
 
-      addAuditFields: (tableId) => {
+      addAuditFields: (tableId, options) => {
         const { project } = get();
         if (!project) return { added: [], skipped: [] };
         const table = project.tables.find(t => t.id === tableId);
         if (!table) return { added: [], skipped: [] };
 
+        const keySet = new Set(options.keys);
         const existingNames = new Set(table.fields.map(f => f.name));
         const added: string[] = [];
         const skipped: string[] = [];
         const newFields: FieldDefinition[] = [];
         let order = table.fields.length;
 
-        for (const proto of AUDIT_FIELD_TEMPLATES) {
+        // 按 catalog 顺序插入，保证字段排列稳定；已存在同名字段跳过
+        for (const spec of AUDIT_FIELD_CATALOG) {
+          if (!keySet.has(spec.key)) continue;
+          const proto = spec.build(options.ownerType);
           if (existingNames.has(proto.name)) {
             skipped.push(proto.name);
             continue;

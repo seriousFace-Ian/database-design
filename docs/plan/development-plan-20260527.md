@@ -8,6 +8,22 @@
 - **数据持久化**：保存为本地 JSON 项目文件（可导入/导出）
 - **字段类型**：常用 PostgreSQL 类型 + 自定义 ENUM 枚举类型
 
+## 需求
+- 快速设计数据表（涵盖基本功能）
+  - 类型定义
+  - 枚举值设置
+  - 约束设置（CONSTRAINT）
+    - PRIMARY KEY（唯一索引）
+    - FOREIGN KEY（可以设置跨表完整性引用）
+    - Unique（唯一约束，单列通过字段勾选）
+    - CHECK（自定义布尔表达式）
+    - NOT NULL 非空设置
+    - EXCLUDE 排斥约束
+  - 索引设置（INDEX） 
+- 导出 json 格式配置
+- 连接本地环境数据库，支持根据设计表生成 SQL 创建表
+- 支持将数据保存到测试数据库（ 连接 __dbdesign， 支持存取）
+
 ---
 
 ## 技术选型
@@ -88,44 +104,61 @@ database-design/
 ```typescript
 // 项目文件根结构（保存为 .dbdesign.json）
 interface ProjectFile {
-  $schema: string; version: '1.0';
-  name: string; description?: string;
-  createdAt: string; updatedAt: string;
+  $schema: string; 
+  version: string;
+  name: string; 
+  description?: string;
+  createdAt: string; 
+  updatedAt: string;
   enums: EnumType[];
   tables: TableDefinition[];
   diagramLayout?: { zoom: number; position: { x: number; y: number } };
 }
 
 interface TableDefinition {
-  id: string; name: string; schema: string; comment?: string;
+  id: string; 
+  name: string; 
+  schema: string; 
+  comment?: string;
   fields: FieldDefinition[];
   indexes?: IndexDefinition[];
   position?: { x: number; y: number };  // React Flow 布局位置
-  createdAt: string; updatedAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface FieldDefinition {
   id: string; name: string;
   type: PgFieldType;            // 'INTEGER' | 'VARCHAR' | 'USER-DEFINED' | ...
   enumTypeId?: string;          // type=USER-DEFINED 时引用 EnumType.id
-  length?: number; precision?: number; scale?: number;
+  length?: number;
+  precision?: number;
+  scale?: number;
   isArray?: boolean;
-  nullable: boolean; isPrimaryKey: boolean; isUnique: boolean;
+  nullable: boolean;
+  isPrimaryKey: boolean;
+  isUnique: boolean;
   defaultValue?: string;        // 原始 SQL 字符串
   checkConstraint?: string;
   foreignKey?: ForeignKeyConfig;
-  comment?: string; order: number;
+  comment?: string;
+  order: number;
 }
 
 interface ForeignKeyConfig {
-  referenceTableId: string; referenceFieldId: string;
-  onDelete: FkAction; onUpdate: FkAction;
+  referenceTableId: string;
+  referenceFieldId: string;
+  onDelete: FkAction;
+  onUpdate: FkAction;
   constraintName?: string;
 }
 
 interface EnumType {
-  id: string; name: string; schema: string;
-  values: string[]; comment?: string;
+  id: string;
+  name: string;
+  schema: string;
+  values: string[]; 
+  comment?: string;
 }
 ```
 

@@ -1,116 +1,118 @@
-# DB Design — 本地 PostgreSQL 数据库设计工具
+# DB Design — Local PostgreSQL Database Design Tool
 
-可视化地设计 PostgreSQL 数据表，导出 `.sql` 文件或直接把 DDL 执行到本地数据库；项目状态以 `.dbdesign.json` 形式落到本地文件，也可以一行 JSONB 存进目标库自身（`__dbdesign` 表），随库分发。
+> English | [简体中文](README.zh-CN.md)
 
-## 功能速览
+Visually design **PostgreSQL** tables, then export a `.sql` file or execute the DDL directly against your local database. Project state is persisted to a local `.dbdesign.json` file, or stored as a single JSONB row inside the target database itself (the `__dbdesign` table) so the design travels with the database.
 
-- 字段表编辑器：完整字段属性（类型 / 长度 / 精度 / 主键 / 唯一 / 默认值 / CHECK / 注释 / 外键 / 软删除等）。
-- ENUM 自定义类型 + 在字段类型下拉中按 schema.name 引用。
-- 外键弹窗：选引用表 + 字段 + `ON DELETE`/`ON UPDATE` 动作。
-- 一键审计字段：`created_at` / `updated_at` / `deleted_at` / `created_by` 批量插入。
-- 关系图（React Flow）：字段级 Handle、dagre 自动布局、全屏、视口/位置持久化。
-- SQL 预览 + 复制 + `.sql` 下载。
-- DDL 直接执行到所连 PostgreSQL：事务模式（出错整体回滚）/ 逐条模式（继续执行），逐条状态展示。
-- 从已有库逆向导入结构为可编辑项目。
-- DB-embedded 配置：把整份 `ProjectFile` 以一行 JSONB 存进目标库的 `__dbdesign` 表，「存库」/「读库」一键互转。
-- 撤销/重做、全局键盘快捷键、结构对比（`ALTER` 预览）。
+## Features
 
-## 技术栈
+- Field-table editor with full column attributes (type / length / precision / primary key / unique / default / CHECK / comment / foreign key / soft delete, etc.).
+- Custom ENUM types, referenced by `schema.name` in the field-type dropdown.
+- Foreign key dialog: pick the referenced table + field and the `ON DELETE` / `ON UPDATE` actions.
+- One-click audit fields: pick from timestamps (`created_at` / `updated_at` / `deleted_at`), actors (`created_by` / `updated_by` / `deleted_by`, with a configurable type — BIGINT / INTEGER / UUID — to match your `users` primary key), and optional optimistic-lock `version`, `created_ip` / `updated_ip`, and `tenant_id`. The core six are checked by default; the rest are opt-in.
+- Relationship diagram (React Flow): field-level handles, dagre auto-layout, fullscreen, and persisted viewport / positions.
+- SQL preview + copy + `.sql` download.
+- Execute DDL directly against the connected PostgreSQL: transactional mode (roll back everything on error) or per-statement mode (continue on error), with per-statement status display.
+- Reverse-engineer an existing database into an editable project.
+- DB-embedded config: store the entire `ProjectFile` as a single JSONB row in the target database's `__dbdesign` table, with one-click "save to DB" / "load from DB".
+- Undo/redo, global keyboard shortcuts, and schema diffing (`ALTER` preview).
 
-| 层级 | 选型 |
-|------|------|
-| 前端 | React 18 + TypeScript + Vite + Ant Design 5 |
-| 状态 | Zustand + zundo（撤销）|
-| 关系图 | @xyflow/react v12 + @dagrejs/dagre |
-| 后端 | Express + TypeScript + `pg` 驱动 |
-| 测试 | Vitest |
+## Tech Stack
 
-## 系统要求
+| Layer | Choice |
+|-------|--------|
+| Frontend | React 18 + TypeScript + Vite + Ant Design 5 |
+| State | Zustand + zundo (undo/redo) |
+| Diagram | @xyflow/react v12 + @dagrejs/dagre |
+| Backend | Express + TypeScript + `pg` driver |
+| Testing | Vitest |
 
-- Node.js ≥ 18（推荐 LTS）。
-- npm ≥ 9（启用 workspaces）。
-- 本地或可访问的 PostgreSQL ≥ 12（仅在使用「测试连接 / 执行 DDL / 存库 / 导入」时需要）。
-- 浏览器需支持 File System Access（保存/打开 `.dbdesign.json`），Chrome / Edge 已支持。Safari / Firefox 上回退到下载方式。
+## Requirements
 
-## 启动
+- Node.js ≥ 18 (LTS recommended).
+- npm ≥ 9 (workspaces enabled).
+- A local or reachable PostgreSQL ≥ 12 (only needed for "test connection / execute DDL / save to DB / import").
+- A browser supporting the File System Access API (to save/open `.dbdesign.json`) — Chrome / Edge are supported; Safari / Firefox fall back to download.
+
+## Getting Started
 
 ```bash
-# 安装根+所有子包依赖（npm workspaces）
+# Install root + all workspace dependencies (npm workspaces)
 npm install
 
-# 同时启动前后端
+# Start frontend and backend together
 npm run dev
 ```
 
-- 前端：http://localhost:5173
-- 后端：http://localhost:3001 （健康检查 `/api/health`）
-- Vite 已把 `/api/*` 代理到 `localhost:3001`，无需手工配置 CORS。
+- Frontend: http://localhost:5173
+- Backend: http://localhost:3001 (health check at `/api/health`)
+- Vite proxies `/api/*` to `localhost:3001`, so no manual CORS setup is required.
 
-也可以单独运行：
+You can also run them separately:
 
 ```bash
-npm run dev:fe   # 前端 Vite
-npm run dev:be   # 后端 ts-node-dev
+npm run dev:fe   # Frontend (Vite)
+npm run dev:be   # Backend (ts-node-dev)
 ```
 
-## 常用脚本
+## Common Scripts
 
 ```bash
-npm run build                              # 构建前端 → packages/frontend/dist
-npm run test                               # 跑前端 Vitest 测试
+npm run build                              # Build frontend → packages/frontend/dist
+npm run test                               # Run frontend Vitest tests
 
-# 单个测试文件
+# A single test file
 npm run test --workspace=packages/frontend -- --run sqlGenerator
 ```
 
-后端单独构建：
+Build the backend separately:
 
 ```bash
 npm --workspace=packages/backend run build  # tsc → dist/
 npm --workspace=packages/backend run start  # node dist/index.js
 ```
 
-## 配置
+## Configuration
 
-后端默认端口 3001，CORS 默认放行 `http://localhost:5173`。如需自定义，在 `packages/backend/` 下放 `.env`：
+The backend defaults to port 3001 and allows CORS from `http://localhost:5173`. To customize, add a `.env` file under `packages/backend/`:
 
 ```
 PORT=3001
 CORS_ORIGIN=http://localhost:5173
 ```
 
-数据库连接凭据**不会**落到服务器：每个 `/api/*` 请求自带连接信息，后端建池→执行→`pool.end()` 立即关闭。前端把连接配置（含密码）放在 `sessionStorage`，关闭浏览器标签即清空。
+Database credentials are **never** persisted on the server: every `/api/*` request carries its own connection info, and the backend creates a pool → executes → calls `pool.end()` immediately. The frontend keeps the connection config (including the password) in `sessionStorage`, which is cleared when the browser tab closes.
 
-## 快捷键
+## Keyboard Shortcuts
 
-| 键位 | 作用 |
-|------|------|
-| `Ctrl/Cmd + S` | 保存当前项目到 `.dbdesign.json` |
-| `Ctrl/Cmd + Z` / `Ctrl/Cmd + Shift + Z` | 撤销 / 重做（zundo）|
-| `Delete` | 删除当前选中表（带二次确认）|
-| `Escape` | 关闭当前 Modal / 取消单元格编辑 |
+| Key | Action |
+|-----|--------|
+| `Ctrl/Cmd + S` | Save the current project to `.dbdesign.json` |
+| `Ctrl/Cmd + Z` / `Ctrl/Cmd + Shift + Z` | Undo / redo (zundo) |
+| `Delete` | Delete the selected table (with confirmation) |
+| `Escape` | Close the current modal / cancel cell editing |
 
-在表格 / 输入框中编辑时，全局快捷键自动让位给行内编辑。
+While editing in a table or input, global shortcuts automatically defer to inline editing.
 
-## 项目结构
+## Project Structure
 
 ```
-docs/                  规划与教程（含 guideline/diagram-view.md）
+docs/                  Plans and tutorials (incl. guideline/diagram-view.md)
 packages/
-  backend/             Express，端口 3001
+  backend/             Express, port 3001
     src/routes/        connection / schema / project
     src/services/      pgClient · schemaInspector · configStore · schemaDiff
-  frontend/            React + Vite，端口 5173
+  frontend/            React + Vite, port 5173
     src/components/    layout · sidebar · editor · diagram · sql · connection
-    src/store/         projectStore（zundo）· uiStore · connectionStore
+    src/store/         projectStore (zundo) · uiStore · connectionStore
     src/utils/         sqlGenerator · schemaImporter · layoutEngine
 ```
 
-## 文档
+## Documentation
 
-- 系统使用说明：[`docs/guideline/usage.md`](docs/guideline/usage.md)
-- 关系图教程：[`docs/guideline/diagram-view.md`](docs/guideline/diagram-view.md)
-- 详细开发计划：[`docs/plan/development-plan-20260527.md`](docs/plan/development-plan-20260527.md)
+- Usage guide: [`docs/guideline/usage.md`](docs/guideline/usage.md)
+- Diagram view tutorial: [`docs/guideline/diagram-view.md`](docs/guideline/diagram-view.md)
+- Detailed development plan: [`docs/plan/development-plan-20260527.md`](docs/plan/development-plan-20260527.md)
 
 ## License
 

@@ -94,7 +94,9 @@ async function fetchTableConstraints(
        con.contype::text AS kind,
        pg_get_constraintdef(con.oid) AS def,
        (
-         SELECT array_agg(att.attname ORDER BY u.ord)
+         -- attname 是 name 类型，array_agg 会产生 name[]（OID 1003），
+         -- node-pg 不解析该数组 OID 而原样返回字符串；显式 ::text 转成 text[] 才能拿到 JS 数组
+         SELECT array_agg(att.attname::text ORDER BY u.ord)
          FROM unnest(con.conkey) WITH ORDINALITY AS u(attnum, ord)
          JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = u.attnum
        ) AS columns,

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Table, Button, Tooltip, Space, Empty, App, Input, Checkbox, theme, Dropdown } from 'antd';
+import { Table, Button, Tooltip, Space, Empty, Input, Checkbox, theme, Dropdown } from 'antd';
 import {
   DeleteOutlined,
   KeyOutlined,
@@ -32,6 +32,7 @@ import FieldTypeSelect from './FieldTypeSelect';
 import FieldNameCell from './FieldNameCell';
 import ForeignKeyModal from './ForeignKeyModal';
 import ConstraintConfig from './ConstraintConfig';
+import AuditFieldsModal from './AuditFieldsModal';
 
 interface DraggableRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
   'data-row-key': string;
@@ -199,24 +200,13 @@ interface Props {
 }
 
 const FieldsTable: React.FC<Props> = ({ table }) => {
-  const { message } = App.useApp();
   const { token } = theme.useToken();
-  const { project, updateField, deleteField, addField, addAuditFields, reorderFields } = useProjectStore();
+  const { project, updateField, deleteField, addField, reorderFields } = useProjectStore();
   const [fkField, setFkField] = useState<FieldDefinition | null>(null);
   const [checkField, setCheckField] = useState<FieldDefinition | null>(null);
+  const [auditOpen, setAuditOpen] = useState(false);
 
   const enums = project?.enums ?? [];
-
-  const handleAddAudit = () => {
-    const { added, skipped } = addAuditFields(table.id);
-    if (added.length > 0 && skipped.length > 0) {
-      message.success(`已添加 ${added.join('、')}；已存在跳过 ${skipped.join('、')}`);
-    } else if (added.length > 0) {
-      message.success(`已添加 ${added.length} 个审计字段：${added.join('、')}`);
-    } else {
-      message.info(`审计字段已全部存在：${skipped.join('、')}`);
-    }
-  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -437,21 +427,11 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
                 >
                   添加字段
                 </Button>
-                <Tooltip
-                  title={
-                    <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                      一键补齐审计字段（已存在的同名字段会跳过）：
-                      <div>· created_at  TIMESTAMPTZ NOT NULL DEFAULT now()</div>
-                      <div>· updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()</div>
-                      <div>· deleted_at  TIMESTAMPTZ NULL（软删除）</div>
-                      <div>· created_by  UUID NULL（可手动改类型/加外键）</div>
-                    </div>
-                  }
-                >
+                <Tooltip title="选择要补齐的审计字段（创建/更新/删除的时间与操作者、乐观锁版本、来源 IP 等）">
                   <Button
                     type="dashed"
                     icon={<FieldTimeOutlined />}
-                    onClick={handleAddAudit}
+                    onClick={() => setAuditOpen(true)}
                     style={{ flex: 1 }}
                   >
                     审计字段
@@ -480,6 +460,8 @@ const FieldsTable: React.FC<Props> = ({ table }) => {
           onClose={() => setCheckField(null)}
         />
       )}
+
+      <AuditFieldsModal open={auditOpen} table={table} onClose={() => setAuditOpen(false)} />
     </>
   );
 };
