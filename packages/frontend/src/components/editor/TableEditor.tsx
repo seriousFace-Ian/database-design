@@ -1,8 +1,9 @@
 import React from 'react';
-import { Typography, Button, Empty, Tabs, Space } from 'antd';
-import { PlusOutlined, TableOutlined } from '@ant-design/icons';
+import { Typography, Button, Empty, Tabs, Space, App } from 'antd';
+import { PlusOutlined, TableOutlined, CopyOutlined } from '@ant-design/icons';
 import { useProjectStore } from '@/store/projectStore';
 import { useUiStore } from '@/store/uiStore';
+import { tableToMarkdown } from '@/utils/markdownExporter';
 import TableMetaForm from './TableMetaForm';
 import FieldsTable from './FieldsTable';
 import TableConstraintsPanel from './TableConstraintsPanel';
@@ -13,6 +14,7 @@ const { Title, Text } = Typography;
 const TableEditor: React.FC = () => {
   const { project, addField } = useProjectStore();
   const { selectedTableId } = useUiStore();
+  const { message } = App.useApp();
 
   const table = project?.tables.find(t => t.id === selectedTableId);
 
@@ -41,6 +43,17 @@ const TableEditor: React.FC = () => {
     );
   }
 
+  const handleCopyMarkdown = async () => {
+    if (!table || !project) return;
+    const md = tableToMarkdown(table, project.enums, project.tables);
+    try {
+      await navigator.clipboard.writeText(md);
+      message.success('已复制 Markdown 到剪贴板');
+    } catch {
+      message.error('复制失败，请检查浏览器剪贴板权限');
+    }
+  };
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '16px 24px' }}>
       {/* 表头 */}
@@ -49,13 +62,18 @@ const TableEditor: React.FC = () => {
           <TableOutlined style={{ marginRight: 8, color: '#1677ff' }} />
           {table.schema}.{table.name}
         </Title>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => addField(table.id)}
-        >
-          添加字段
-        </Button>
+        <Space>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => addField(table.id)}
+          >
+            添加字段
+          </Button>
+          <Button icon={<CopyOutlined />} onClick={handleCopyMarkdown}>
+            复制 Markdown
+          </Button>
+        </Space>
       </div>
 
       <Tabs
