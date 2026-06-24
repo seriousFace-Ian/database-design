@@ -1,12 +1,8 @@
-import React from 'react';
-import {
-  BaseEdge,
-  EdgeLabelRenderer,
-  getSmoothStepPath,
-  type EdgeProps,
-} from '@xyflow/react';
-import { Tooltip, theme } from 'antd';
-import type { FkFlowEdge } from '@/types/flow';
+import {BaseEdge, EdgeLabelRenderer, type EdgeProps, getSmoothStepPath} from '@xyflow/react'
+import {theme, Tooltip} from 'antd'
+import type React from 'react'
+
+import type {FkFlowEdge} from '@/types/flow'
 
 const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
   id,
@@ -20,7 +16,7 @@ const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
   markerEnd,
   selected,
 }) => {
-  const { token } = theme.useToken();
+  const {token} = theme.useToken()
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -29,14 +25,14 @@ const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
     sourcePosition,
     targetPosition,
     borderRadius: 8,
-  });
+  })
 
   return (
     <>
       <BaseEdge
         id={id}
-        path={path}
         markerEnd={markerEnd}
+        path={path}
         style={{
           stroke: selected ? token.colorPrimary : token.colorTextSecondary,
           strokeWidth: selected ? 2 : 1.5,
@@ -45,16 +41,16 @@ const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
       {data && (
         <EdgeLabelRenderer>
           <div
+            className="nodrag nopan"
             style={{
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
               pointerEvents: 'all',
             }}
-            className="nodrag nopan"
           >
             <Tooltip
               title={
-                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                <div style={{fontSize: 12, lineHeight: 1.6}}>
                   <div>
                     <strong>{data.constraintName ?? '(未命名约束)'}</strong>
                   </div>
@@ -86,7 +82,7 @@ const ForeignKeyEdge: React.FC<EdgeProps<FkFlowEdge>> = ({
         </EdgeLabelRenderer>
       )}
     </>
-  );
-};
+  )
+}
 
-export default ForeignKeyEdge;
+export default ForeignKeyEdge

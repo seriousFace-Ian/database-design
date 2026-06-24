@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
-import { useProjectStore } from '@/store/projectStore';
+import {useEffect} from 'react'
+
+import {useProjectStore} from '@/store/projectStore'
 
 /**
  * 在 ProjectFile 处于「未保存」状态时，拦截浏览器层面的关闭 / 刷新 / 跳转。
@@ -11,12 +12,12 @@ export function useUnsavedGuard() {
     const handler = (e: BeforeUnloadEvent) => {
       // 实时读最新 isDirty，避免闭包陷阱
       if (useProjectStore.getState().isDirty) {
-        e.preventDefault();
+        e.preventDefault()
         // Chrome 仍需 returnValue 才弹出
-        e.returnValue = '';
+        e.returnValue = ''
       }
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, []);
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [])
 }

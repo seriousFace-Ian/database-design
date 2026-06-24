@@ -1,0 +1,82 @@
+{
+  // 文件探针
+  "files.associations": {
+    "*.cjson": "jsonc",
+    "*.wxss": "css",
+    "*.wxs": "javascript",
+    "*.wxml": "wxml",
+    "*.js": "javascript",
+    "*.jsx": "javascriptreact"
+  },
+
+  // html css support
+  "html.format.wrapLineLength": 150,
+  "css.validate": true,
+
+  // emmet
+  "emmet.includeLanguages": {
+    "javascript": "javascriptreact"
+  },
+
+  // ESLint 配置
+  "eslint.enable": true,
+  "eslint.useFlatConfig": true,
+  "eslint.workingDirectories": [{"mode": "auto"}],
+  "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+
+  // 关键配置：保存时执行 ESLint fix
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.fixAll.stylelint": "explicit"
+  },
+
+  // 禁用 formatOnSave，因为 eslint-plugin-prettier 会处理格式化
+  "editor.formatOnSave": false,
+
+  // JavaScript React 文件
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+
+  // JavaScript 文件
+  "[javascript]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+
+  // TypeScript 文件
+  "[typescript]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+
+  "vue-jumper.rules": [
+    // 默认配置，应放在最后
+    {
+      "prefix": "*",
+      "searchPattern": {
+        "include": "**/$1",
+        "exclude": "**/{node_modules,build,dist}"
+      }
+    }
+  ],
+
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true
+  },
+
+  "files.exclude": {
+    "**/.cursorignore": true,
+    "**/leetcode/**": true
+  },
+
+  "pnpmCatalogLens.enabled": true
+}

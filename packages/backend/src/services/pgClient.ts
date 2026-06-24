@@ -1,5 +1,5 @@
-import { Pool, PoolConfig } from 'pg';
-import { DbConnectionConfig } from '../types';
+import {Pool, PoolConfig} from 'pg'
+import {DbConnectionConfig} from '../types'
 
 /**
  * 根据连接配置创建临时 pg Pool
@@ -12,24 +12,24 @@ export function createPool(config: DbConnectionConfig): Pool {
     database: config.database,
     user: config.username,
     password: config.password,
-    ssl: config.ssl ? { rejectUnauthorized: false } : false,
+    ssl: config.ssl ? {rejectUnauthorized: false} : false,
     max: 5,
     idleTimeoutMillis: 10000,
     connectionTimeoutMillis: 5000,
-  };
-  return new Pool(poolConfig);
+  }
+  return new Pool(poolConfig)
 }
 
 /**
  * 测试数据库连接，返回 PostgreSQL 版本
  */
 export async function testConnection(config: DbConnectionConfig): Promise<string> {
-  const pool = createPool(config);
+  const pool = createPool(config)
   try {
-    const result = await pool.query<{ version: string }>('SELECT version()');
-    return result.rows[0].version;
+    const result = await pool.query<{version: string}>('SELECT version()')
+    return result.rows[0].version
   } finally {
-    await pool.end();
+    await pool.end()
   }
 }
 
@@ -39,36 +39,36 @@ export async function testConnection(config: DbConnectionConfig): Promise<string
 export async function executeInTransaction(
   config: DbConnectionConfig,
   statements: string[]
-): Promise<{ executedCount: number; errors: Array<{ statement: string; error: string }> }> {
-  const pool = createPool(config);
-  const client = await pool.connect();
-  const errors: Array<{ statement: string; error: string }> = [];
-  let ran = 0;
-  let committed = false;
+): Promise<{executedCount: number; errors: Array<{statement: string; error: string}>}> {
+  const pool = createPool(config)
+  const client = await pool.connect()
+  const errors: Array<{statement: string; error: string}> = []
+  let ran = 0
+  let committed = false
 
   try {
-    await client.query('BEGIN');
+    await client.query('BEGIN')
     for (const stmt of statements) {
       try {
-        await client.query(stmt);
-        ran++;
+        await client.query(stmt)
+        ran++
       } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        errors.push({ statement: stmt, error });
-        throw err; // 触发回滚
+        const error = err instanceof Error ? err.message : String(err)
+        errors.push({statement: stmt, error})
+        throw err // 触发回滚
       }
     }
-    await client.query('COMMIT');
-    committed = true;
+    await client.query('COMMIT')
+    committed = true
   } catch {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK')
   } finally {
-    client.release();
-    await pool.end();
+    client.release()
+    await pool.end()
   }
 
   // 事务回滚后没有任何语句真正生效，executedCount 应为 0，避免误导调用方
-  return { executedCount: committed ? ran : 0, errors };
+  return {executedCount: committed ? ran : 0, errors}
 }
 
 /**
@@ -77,24 +77,24 @@ export async function executeInTransaction(
 export async function executeStatements(
   config: DbConnectionConfig,
   statements: string[]
-): Promise<{ executedCount: number; errors: Array<{ statement: string; error: string }> }> {
-  const pool = createPool(config);
-  const errors: Array<{ statement: string; error: string }> = [];
-  let executedCount = 0;
+): Promise<{executedCount: number; errors: Array<{statement: string; error: string}>}> {
+  const pool = createPool(config)
+  const errors: Array<{statement: string; error: string}> = []
+  let executedCount = 0
 
   try {
     for (const stmt of statements) {
       try {
-        await pool.query(stmt);
-        executedCount++;
+        await pool.query(stmt)
+        executedCount++
       } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        errors.push({ statement: stmt, error });
+        const error = err instanceof Error ? err.message : String(err)
+        errors.push({statement: stmt, error})
       }
     }
   } finally {
-    await pool.end();
+    await pool.end()
   }
 
-  return { executedCount, errors };
+  return {executedCount, errors}
 }

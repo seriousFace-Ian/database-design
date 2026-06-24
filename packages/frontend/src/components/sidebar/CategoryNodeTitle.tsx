@@ -1,38 +1,41 @@
-import React, { useState } from 'react';
-import { Typography, Dropdown, Modal, Input, Space, theme } from 'antd';
-import {
-  FolderOutlined,
-  FolderOpenOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  MoreOutlined,
-  DownloadOutlined,
-} from '@ant-design/icons';
-import { useProjectStore } from '@/store/projectStore';
-import type { TableCategory } from '@/types/schema';
+import {useState} from 'react'
 
-const { Text } = Typography;
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  FolderOpenOutlined,
+  FolderOutlined,
+  MoreOutlined,
+} from '@ant-design/icons'
+import {Dropdown, Input, Modal, Space, theme, Typography} from 'antd'
+import type React from 'react'
+
+import {useProjectStore} from '@/store/projectStore'
+import type {TableCategory} from '@/types/schema'
+
+const {Text} = Typography
 
 interface Props {
-  category: TableCategory;
-  tableCount: number;
-  expanded: boolean;
-  isDropTarget?: boolean;
+  category: TableCategory
+  tableCount: number
+  expanded: boolean
+  isDropTarget?: boolean
 }
 
-const CategoryNodeTitle: React.FC<Props> = ({ category, tableCount, expanded, isDropTarget }) => {
-  const { renameCategory, deleteCategory } = useProjectStore();
-  const { token } = theme.useToken();
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState(category.name);
+const CategoryNodeTitle: React.FC<Props> = ({category, tableCount, expanded, isDropTarget}) => {
+  const {renameCategory, deleteCategory} = useProjectStore()
+  const {token} = theme.useToken()
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState(category.name)
 
   const handleRename = () => {
-    const name = renameValue.trim();
+    const name = renameValue.trim()
     if (name && name !== category.name) {
-      renameCategory(category.id, name);
+      renameCategory(category.id, name)
     }
-    setRenaming(false);
-  };
+    setRenaming(false)
+  }
 
   const handleDelete = () => {
     Modal.confirm({
@@ -43,10 +46,10 @@ const CategoryNodeTitle: React.FC<Props> = ({ category, tableCount, expanded, is
           : '该分组为空，将直接删除。',
       okText: '确认删除',
       cancelText: '取消',
-      okButtonProps: { danger: true },
+      okButtonProps: {danger: true},
       onOk: () => deleteCategory(category.id),
-    });
-  };
+    })
+  }
 
   return (
     <div
@@ -60,28 +63,24 @@ const CategoryNodeTitle: React.FC<Props> = ({ category, tableCount, expanded, is
       }}
     >
       {expanded ? (
-        <FolderOpenOutlined
-          style={{ marginRight: 6, color: token.colorWarning, flexShrink: 0 }}
-        />
+        <FolderOpenOutlined style={{marginRight: 6, color: token.colorWarning, flexShrink: 0}} />
       ) : (
-        <FolderOutlined
-          style={{ marginRight: 6, color: token.colorWarning, flexShrink: 0 }}
-        />
+        <FolderOutlined style={{marginRight: 6, color: token.colorWarning, flexShrink: 0}} />
       )}
 
       {renaming ? (
         <Input
-          size="small"
-          value={renameValue}
           autoFocus
-          onClick={e => e.stopPropagation()}
-          onChange={e => setRenameValue(e.target.value)}
+          size="small"
+          style={{flex: 1}}
+          value={renameValue}
           onBlur={handleRename}
-          onPressEnter={handleRename}
+          onChange={e => setRenameValue(e.target.value)}
+          onClick={e => e.stopPropagation()}
           onKeyDown={e => {
-            if (e.key === 'Escape') setRenaming(false);
+            if (e.key === 'Escape') setRenaming(false)
           }}
-          style={{ flex: 1 }}
+          onPressEnter={handleRename}
         />
       ) : (
         <Text
@@ -96,7 +95,7 @@ const CategoryNodeTitle: React.FC<Props> = ({ category, tableCount, expanded, is
           }}
         >
           {category.name}
-          <Text type="secondary" style={{ fontSize: 11, marginLeft: 4, fontWeight: 'normal' }}>
+          <Text style={{fontSize: 11, marginLeft: 4, fontWeight: 'normal'}} type="secondary">
             ({tableCount})
           </Text>
         </Text>
@@ -117,17 +116,16 @@ const CategoryNodeTitle: React.FC<Props> = ({ category, tableCount, expanded, is
       )}
 
       <Dropdown
-        trigger={['click']}
         menu={{
           items: [
             {
               key: 'rename',
               icon: <EditOutlined />,
               label: '重命名',
-              onClick: ({ domEvent }) => {
-                domEvent.stopPropagation();
-                setRenameValue(category.name);
-                setRenaming(true);
+              onClick: ({domEvent}) => {
+                domEvent.stopPropagation()
+                setRenameValue(category.name)
+                setRenaming(true)
               },
             },
             {
@@ -135,28 +133,29 @@ const CategoryNodeTitle: React.FC<Props> = ({ category, tableCount, expanded, is
               icon: <DeleteOutlined />,
               label: '删除分组',
               danger: true,
-              onClick: ({ domEvent }) => {
-                domEvent.stopPropagation();
-                handleDelete();
+              onClick: ({domEvent}) => {
+                domEvent.stopPropagation()
+                handleDelete()
               },
             },
           ],
         }}
+        trigger={['click']}
       >
         <Space
-          onClick={e => e.stopPropagation()}
           style={{
             padding: '2px 4px',
             borderRadius: 4,
             color: token.colorTextSecondary,
             flexShrink: 0,
           }}
+          onClick={e => e.stopPropagation()}
         >
           <MoreOutlined />
         </Space>
       </Dropdown>
     </div>
-  );
-};
+  )
+}
 
-export default CategoryNodeTitle;
+export default CategoryNodeTitle

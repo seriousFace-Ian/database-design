@@ -1,5 +1,5 @@
-import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
+import {resolve} from 'path'
+import {defineConfig} from 'vitest/config'
 
 export default defineConfig({
   resolve: {
@@ -11,4 +11,4 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
-});
+})

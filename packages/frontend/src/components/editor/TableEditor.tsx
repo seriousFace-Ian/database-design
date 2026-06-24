@@ -1,73 +1,80 @@
-import React from 'react';
-import { Typography, Button, Empty, Tabs, Space, App } from 'antd';
-import { PlusOutlined, TableOutlined, CopyOutlined } from '@ant-design/icons';
-import { useProjectStore } from '@/store/projectStore';
-import { useUiStore } from '@/store/uiStore';
-import { tableToMarkdown } from '@/utils/markdownExporter';
-import TableMetaForm from './TableMetaForm';
-import FieldsTable from './FieldsTable';
-import TableConstraintsPanel from './TableConstraintsPanel';
-import TableIndexesPanel from './TableIndexesPanel';
+import {CopyOutlined, PlusOutlined, TableOutlined} from '@ant-design/icons'
+import {App, Button, Empty, Space, Tabs, Typography} from 'antd'
+import type React from 'react'
 
-const { Title, Text } = Typography;
+import {useProjectStore} from '@/store/projectStore'
+import {useUiStore} from '@/store/uiStore'
+import {tableToMarkdown} from '@/utils/markdownExporter'
+
+import FieldsTable from './FieldsTable'
+import TableConstraintsPanel from './TableConstraintsPanel'
+import TableIndexesPanel from './TableIndexesPanel'
+import TableMetaForm from './TableMetaForm'
+
+const {Title, Text} = Typography
 
 const TableEditor: React.FC = () => {
-  const { project, addField } = useProjectStore();
-  const { selectedTableId } = useUiStore();
-  const { message } = App.useApp();
+  const {project, addField} = useProjectStore()
+  const {selectedTableId} = useUiStore()
+  const {message} = App.useApp()
 
-  const table = project?.tables.find(t => t.id === selectedTableId);
+  const table = project?.tables.find(t => t.id === selectedTableId)
 
   if (!project) {
     return (
       <Empty
-        image={<TableOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />}
         description={
           <Space direction="vertical" size={4}>
             <Text>请新建或打开项目</Text>
-            <Text type="secondary" style={{ fontSize: 12 }}>支持 .dbdesign.json 文件</Text>
+            <Text style={{fontSize: 12}} type="secondary">
+              支持 .dbdesign.json 文件
+            </Text>
           </Space>
         }
-        style={{ marginTop: 120 }}
+        image={<TableOutlined style={{fontSize: 48, color: '#d9d9d9'}} />}
+        style={{marginTop: 120}}
       />
-    );
+    )
   }
 
   if (!table) {
     return (
       <Empty
-        image={Empty.PRESENTED_IMAGE_SIMPLE}
         description="从左侧选择一张表，或新建表"
-        style={{ marginTop: 120 }}
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        style={{marginTop: 120}}
       />
-    );
+    )
   }
 
   const handleCopyMarkdown = async () => {
-    if (!table || !project) return;
-    const md = tableToMarkdown(table, project.enums, project.tables);
+    if (!table || !project) return
+    const md = tableToMarkdown(table, project.enums, project.tables)
     try {
-      await navigator.clipboard.writeText(md);
-      message.success('已复制 Markdown 到剪贴板');
+      await navigator.clipboard.writeText(md)
+      message.success('已复制 Markdown 到剪贴板')
     } catch {
-      message.error('复制失败，请检查浏览器剪贴板权限');
+      message.error('复制失败，请检查浏览器剪贴板权限')
     }
-  };
+  }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '16px 24px' }}>
+    <div style={{height: '100%', display: 'flex', flexDirection: 'column', padding: '16px 24px'}}>
       {/* 表头 */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <TableOutlined style={{ marginRight: 8, color: '#1677ff' }} />
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 16,
+        }}
+      >
+        <Title level={4} style={{margin: 0}}>
+          <TableOutlined style={{marginRight: 8, color: '#1677ff'}} />
           {table.schema}.{table.name}
         </Title>
         <Space>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => addField(table.id)}
-          >
+          <Button icon={<PlusOutlined />} type="primary" onClick={() => addField(table.id)}>
             添加字段
           </Button>
           <Button icon={<CopyOutlined />} onClick={handleCopyMarkdown}>
@@ -78,7 +85,6 @@ const TableEditor: React.FC = () => {
 
       <Tabs
         defaultActiveKey="fields"
-        style={{ flex: 1 }}
         items={[
           {
             key: 'fields',
@@ -101,9 +107,10 @@ const TableEditor: React.FC = () => {
             children: <TableMetaForm table={table} />,
           },
         ]}
+        style={{flex: 1}}
       />
     </div>
-  );
-};
+  )
+}
 
-export default TableEditor;
+export default TableEditor

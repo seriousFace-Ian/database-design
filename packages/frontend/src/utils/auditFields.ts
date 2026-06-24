@@ -1,4 +1,4 @@
-import type { FieldDefinition } from '@/types/schema';
+import type {FieldDefinition} from '@/types/schema'
 
 // ==================== 审计字段目录 ====================
 // 「一键审计字段」的可选清单。核心 6 项（时间戳 + 操作者）默认勾选，
@@ -15,45 +15,45 @@ export type AuditFieldKey =
   | 'version'
   | 'created_ip'
   | 'updated_ip'
-  | 'tenant_id';
+  | 'tenant_id'
 
-export type AuditOwnerType = 'BIGINT' | 'INTEGER' | 'UUID';
-export const AUDIT_OWNER_TYPES: AuditOwnerType[] = ['BIGINT', 'INTEGER', 'UUID'];
+export type AuditOwnerType = 'BIGINT' | 'INTEGER' | 'UUID'
+export const AUDIT_OWNER_TYPES: AuditOwnerType[] = ['BIGINT', 'INTEGER', 'UUID']
 
-export type AuditFieldGroup = 'timestamp' | 'actor' | 'extra';
+export type AuditFieldGroup = 'timestamp' | 'actor' | 'extra'
 
 export const AUDIT_GROUP_LABELS: Record<AuditFieldGroup, string> = {
   timestamp: '时间戳',
   actor: '操作者',
   extra: '其他',
-};
+}
 
-type FieldProto = Omit<FieldDefinition, 'id' | 'order'>;
+type FieldProto = Omit<FieldDefinition, 'id' | 'order'>
 
 export interface AuditFieldSpec {
-  key: AuditFieldKey;
-  group: AuditFieldGroup;
+  key: AuditFieldKey
+  group: AuditFieldGroup
   /** 操作者字段：类型随 ownerType 变化（created_by / updated_by / deleted_by） */
-  isActor?: boolean;
+  isActor?: boolean
   /** 默认勾选（核心字段） */
-  defaultChecked: boolean;
+  defaultChecked: boolean
   /** 生成字段原型；actor 字段的 type 注入 ownerType */
-  build: (ownerType: AuditOwnerType) => FieldProto;
+  build: (ownerType: AuditOwnerType) => FieldProto
 }
 
 const ts = (
   name: string,
   comment: string,
-  opts: { nullable: boolean; withDefault?: boolean }
+  opts: {nullable: boolean; withDefault?: boolean}
 ): FieldProto => ({
   name,
   type: 'TIMESTAMPTZ',
   nullable: opts.nullable,
   isPrimaryKey: false,
   isUnique: false,
-  ...(opts.withDefault ? { defaultValue: 'now()' } : {}),
+  ...(opts.withDefault ? {defaultValue: 'now()'} : {}),
   comment,
-});
+})
 
 const actor =
   (name: string, comment: string) =>
@@ -64,7 +64,7 @@ const actor =
     isPrimaryKey: false,
     isUnique: false,
     comment,
-  });
+  })
 
 export const AUDIT_FIELD_CATALOG: AuditFieldSpec[] = [
   // 时间戳
@@ -72,19 +72,19 @@ export const AUDIT_FIELD_CATALOG: AuditFieldSpec[] = [
     key: 'created_at',
     group: 'timestamp',
     defaultChecked: true,
-    build: () => ts('created_at', '创建时间', { nullable: false, withDefault: true }),
+    build: () => ts('created_at', '创建时间', {nullable: false, withDefault: true}),
   },
   {
     key: 'updated_at',
     group: 'timestamp',
     defaultChecked: true,
-    build: () => ts('updated_at', '更新时间', { nullable: false, withDefault: true }),
+    build: () => ts('updated_at', '更新时间', {nullable: false, withDefault: true}),
   },
   {
     key: 'deleted_at',
     group: 'timestamp',
     defaultChecked: true,
-    build: () => ts('deleted_at', '软删除时间（NULL = 未删除）', { nullable: true }),
+    build: () => ts('deleted_at', '软删除时间（NULL = 未删除）', {nullable: true}),
   },
   // 操作者（类型随 ownerType）
   {
@@ -162,11 +162,11 @@ export const AUDIT_FIELD_CATALOG: AuditFieldSpec[] = [
       comment: '租户 ID（多租户隔离）',
     }),
   },
-];
+]
 
 /** 预览串：TIMESTAMPTZ  NOT NULL  DEFAULT now() */
 export function auditFieldPreview(proto: FieldProto): string {
-  const parts = [proto.type, proto.nullable ? 'NULL' : 'NOT NULL'];
-  if (proto.defaultValue) parts.push(`DEFAULT ${proto.defaultValue}`);
-  return parts.join('  ');
+  const parts = [proto.type, proto.nullable ? 'NULL' : 'NOT NULL']
+  if (proto.defaultValue) parts.push(`DEFAULT ${proto.defaultValue}`)
+  return parts.join('  ')
 }

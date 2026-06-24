@@ -1,8 +1,9 @@
-import React from 'react';
-import TableEditor from '@/components/editor/TableEditor';
+import type React from 'react'
+
+import TableEditor from '@/components/editor/TableEditor'
 
 const DesignerPage: React.FC = () => {
-  return <TableEditor />;
-};
+  return <TableEditor />
+}
 
-export default DesignerPage;
+export default DesignerPage

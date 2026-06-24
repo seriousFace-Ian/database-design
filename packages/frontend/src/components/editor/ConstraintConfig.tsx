@@ -1,117 +1,122 @@
-import React, { useEffect } from 'react';
-import { Modal, Form, Input, Button, Space, Typography, Radio, Divider } from 'antd';
-import { useProjectStore } from '@/store/projectStore';
-import type { FieldDefinition, IdentityKind } from '@/types/schema';
+import {useEffect} from 'react'
 
-const { Text } = Typography;
+import {Button, Divider, Form, Input, Modal, Radio, Space, Typography} from 'antd'
+import type React from 'react'
+
+import {useProjectStore} from '@/store/projectStore'
+import type {FieldDefinition, IdentityKind} from '@/types/schema'
+
+const {Text} = Typography
 
 interface Props {
-  open: boolean;
-  tableId: string;
-  field: FieldDefinition;
-  onClose: () => void;
+  open: boolean
+  tableId: string
+  field: FieldDefinition
+  onClose: () => void
 }
 
-const IDENTITY_ELIGIBLE = new Set(['SMALLINT', 'INTEGER', 'BIGINT']);
+const IDENTITY_ELIGIBLE = new Set(['SMALLINT', 'INTEGER', 'BIGINT'])
 
 interface FormValues {
-  checkConstraint: string;
-  identity: 'NONE' | IdentityKind;
+  checkConstraint: string
+  identity: 'NONE' | IdentityKind
 }
 
 /** 列级 CHECK + IDENTITY 编辑器（IDENTITY 仅对 SMALLINT/INTEGER/BIGINT 显示） */
-const ConstraintConfig: React.FC<Props> = ({ open, tableId, field, onClose }) => {
-  const { updateField } = useProjectStore();
-  const [form] = Form.useForm<FormValues>();
-  const identityEligible = IDENTITY_ELIGIBLE.has(String(field.type));
+const ConstraintConfig: React.FC<Props> = ({open, tableId, field, onClose}) => {
+  const {updateField} = useProjectStore()
+  const [form] = Form.useForm<FormValues>()
+  const identityEligible = IDENTITY_ELIGIBLE.has(String(field.type))
 
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
         checkConstraint: field.checkConstraint ?? '',
         identity: field.identity ?? 'NONE',
-      });
+      })
     }
-  }, [open, field.id, field.checkConstraint, field.identity, form]);
+  }, [open, field.id, field.checkConstraint, field.identity, form])
 
   const handleSave = async () => {
-    const { checkConstraint, identity } = await form.validateFields();
-    const trimmed = checkConstraint.trim();
+    const {checkConstraint, identity} = await form.validateFields()
+    const trimmed = checkConstraint.trim()
     const nextIdentity: IdentityKind | undefined =
-      identityEligible && identity !== 'NONE' ? identity : undefined;
+      identityEligible && identity !== 'NONE' ? identity : undefined
     updateField(tableId, field.id, {
       checkConstraint: trimmed || undefined,
       identity: nextIdentity,
       // IDENTITY 与 DEFAULT 互斥：开启 IDENTITY 时强制清空 defaultValue
-      ...(nextIdentity ? { defaultValue: undefined } : {}),
-    });
-    onClose();
-  };
+      ...(nextIdentity ? {defaultValue: undefined} : {}),
+    })
+    onClose()
+  }
 
   const handleClear = () => {
-    updateField(tableId, field.id, { checkConstraint: undefined });
-    onClose();
-  };
+    updateField(tableId, field.id, {checkConstraint: undefined})
+    onClose()
+  }
 
   return (
     <Modal
-      title={`列约束 — ${field.name}`}
-      open={open}
-      onCancel={onClose}
-      width={520}
       footer={
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <Button danger onClick={handleClear} disabled={!field.checkConstraint}>
+        <div style={{display: 'flex', justifyContent: 'space-between'}}>
+          <Button danger disabled={!field.checkConstraint} onClick={handleClear}>
             清除 CHECK
           </Button>
           <Space>
             <Button onClick={onClose}>取消</Button>
-            <Button type="primary" onClick={handleSave}>保存</Button>
+            <Button type="primary" onClick={handleSave}>
+              保存
+            </Button>
           </Space>
         </div>
       }
+      open={open}
+      title={`列约束 — ${field.name}`}
+      width={520}
+      onCancel={onClose}
     >
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+      <Form form={form} layout="vertical" style={{marginTop: 16}}>
         <Form.Item
-          name="checkConstraint"
-          label="CHECK 布尔表达式"
           extra={
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Text style={{fontSize: 12}} type="secondary">
               只填表达式本身，无需写 CHECK 与括号。例如：<code>{field.name} &gt;= 0</code>
             </Text>
           }
+          label="CHECK 布尔表达式"
+          name="checkConstraint"
         >
           <Input.TextArea
-            rows={3}
             placeholder={`${field.name} >= 0`}
-            style={{ fontFamily: 'monospace' }}
+            rows={3}
+            style={{fontFamily: 'monospace'}}
           />
         </Form.Item>
 
         {identityEligible && (
           <>
-            <Divider style={{ margin: '8px 0 16px' }} />
+            <Divider style={{margin: '8px 0 16px'}} />
             <Form.Item
-              name="identity"
-              label="IDENTITY（自增列）"
               extra={
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  IDENTITY 与默认值互斥；启用后会自动清空"默认值"。
+                <Text style={{fontSize: 12}} type="secondary">
+                  IDENTITY 与默认值互斥；启用后会自动清空「默认值」。
                 </Text>
               }
+              label="IDENTITY（自增列）"
+              name="identity"
             >
               <Radio.Group>
                 <Space direction="vertical">
                   <Radio value="NONE">无（普通列）</Radio>
                   <Radio value="BY DEFAULT">
                     <Text>GENERATED BY DEFAULT AS IDENTITY</Text>
-                    <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                    <Text style={{marginLeft: 8, fontSize: 12}} type="secondary">
                       推荐：可手动覆盖
                     </Text>
                   </Radio>
                   <Radio value="ALWAYS">
                     <Text>GENERATED ALWAYS AS IDENTITY</Text>
-                    <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                    <Text style={{marginLeft: 8, fontSize: 12}} type="secondary">
                       严格：禁止手动赋值
                     </Text>
                   </Radio>
@@ -122,7 +127,7 @@ const ConstraintConfig: React.FC<Props> = ({ open, tableId, field, onClose }) =>
         )}
       </Form>
     </Modal>
-  );
-};
+  )
+}
 
-export default ConstraintConfig;
+export default ConstraintConfig

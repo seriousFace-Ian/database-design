@@ -1,5 +1,5 @@
-import { Pool } from 'pg';
-import { createPool } from './pgClient';
+import {Pool} from 'pg'
+import {createPool} from './pgClient'
 import {
   DbConnectionConfig,
   DbTable,
@@ -10,28 +10,32 @@ import {
   DbEnum,
   DbTableConstraint,
   InspectSchemaResponse,
-} from '../types';
+} from '../types'
 
 export async function inspectSchema(
   config: DbConnectionConfig,
   schemas: string[] = ['public']
 ): Promise<InspectSchemaResponse> {
-  const pool = createPool(config);
+  const pool = createPool(config)
   try {
     const [tables, enums] = await Promise.all([
       fetchTables(pool, schemas),
       fetchEnums(pool, schemas),
-    ]);
-    return { tables, enums };
+    ])
+    return {tables, enums}
   } finally {
-    await pool.end();
+    await pool.end()
   }
 }
 
 async function fetchTables(pool: Pool, schemas: string[]): Promise<DbTable[]> {
-  const schemaPlaceholders = schemas.map((_, i) => `$${i + 1}`).join(', ');
+  const schemaPlaceholders = schemas.map((_, i) => `$${i + 1}`).join(', ')
 
-  const tablesResult = await pool.query<{ table_name: string; table_schema: string; comment: string | null }>(
+  const tablesResult = await pool.query<{
+    table_name: string
+    table_schema: string
+    comment: string | null
+  }>(
     `SELECT c.table_name, c.table_schema,
             obj_description(pgc.oid) as comment
      FROM information_schema.tables c
@@ -42,16 +46,16 @@ async function fetchTables(pool: Pool, schemas: string[]): Promise<DbTable[]> {
        AND c.table_name <> '__dbdesign'
      ORDER BY c.table_schema, c.table_name`,
     schemas
-  );
+  )
 
-  const tables: DbTable[] = [];
+  const tables: DbTable[] = []
   for (const row of tablesResult.rows) {
     const [columns, foreignKeys, indexes, constraints] = await Promise.all([
       fetchColumns(pool, row.table_schema, row.table_name),
       fetchForeignKeys(pool, row.table_schema, row.table_name),
       fetchIndexes(pool, row.table_schema, row.table_name),
       fetchTableConstraints(pool, row.table_schema, row.table_name),
-    ]);
+    ])
 
     tables.push({
       name: row.table_name,
@@ -61,10 +65,10 @@ async function fetchTables(pool: Pool, schemas: string[]): Promise<DbTable[]> {
       foreignKeys,
       indexes,
       constraints,
-    });
+    })
   }
 
-  return tables;
+  return tables
 }
 
 /**
@@ -81,13 +85,13 @@ async function fetchTableConstraints(
   table: string
 ): Promise<DbTableConstraint[]> {
   const result = await pool.query<{
-    name: string;
-    kind: string; // 'u' | 'c' | 'x'
-    def: string;
-    columns: (string | null)[] | null;
-    deferrable: boolean;
-    initially_deferred: boolean;
-    index_method: string | null;
+    name: string
+    kind: string // 'u' | 'c' | 'x'
+    def: string
+    columns: (string | null)[] | null
+    deferrable: boolean
+    initially_deferred: boolean
+    index_method: string | null
   }>(
     `SELECT
        con.conname AS name,
@@ -112,30 +116,30 @@ async function fetchTableConstraints(
        AND con.contype IN ('u', 'c', 'x')
      ORDER BY con.conname`,
     [schema, table]
-  );
+  )
 
-  const out: DbTableConstraint[] = [];
+  const out: DbTableConstraint[] = []
   for (const row of result.rows) {
-    const cols = (row.columns ?? []).filter((c): c is string => !!c);
+    const cols = (row.columns ?? []).filter((c): c is string => !!c)
     if (row.kind === 'u') {
-      if (cols.length < 2) continue; // 单列 UNIQUE 走列级
-      out.push({ name: row.name, kind: 'UNIQUE', columns: cols });
-      continue;
+      if (cols.length < 2) continue // 单列 UNIQUE 走列级
+      out.push({name: row.name, kind: 'UNIQUE', columns: cols})
+      continue
     }
     if (row.kind === 'c') {
-      const m = row.def.match(/^CHECK\s*\((.*)\)\s*$/i);
-      const expr = (m ? m[1] : row.def).trim();
-      if (/^\w+ IS NOT NULL$/i.test(expr)) continue;
+      const m = row.def.match(/^CHECK\s*\((.*)\)\s*$/i)
+      const expr = (m ? m[1] : row.def).trim()
+      if (/^\w+ IS NOT NULL$/i.test(expr)) continue
       if (cols.length === 1) {
-        const col = cols[0];
-        const onlyRefsCol = new RegExp(`^[^a-zA-Z_]*\\(*\\s*"?${escapeRegex(col)}"?\\b`).test(expr);
-        if (onlyRefsCol && !mentionsOtherIdentifiers(expr, col)) continue;
+        const col = cols[0]
+        const onlyRefsCol = new RegExp(`^[^a-zA-Z_]*\\(*\\s*"?${escapeRegex(col)}"?\\b`).test(expr)
+        if (onlyRefsCol && !mentionsOtherIdentifiers(expr, col)) continue
       }
-      out.push({ name: row.name, kind: 'CHECK', expression: expr });
-      continue;
+      out.push({name: row.name, kind: 'CHECK', expression: expr})
+      continue
     }
     // kind === 'x' — EXCLUDE
-    const parsed = parseExclusionDef(row.def);
+    const parsed = parseExclusionDef(row.def)
     out.push({
       name: row.name,
       kind: 'EXCLUDE',
@@ -144,15 +148,15 @@ async function fetchTableConstraints(
       exclusionWhere: parsed.where,
       exclusionDeferrable: row.deferrable,
       exclusionInitiallyDeferred: row.initially_deferred,
-    });
+    })
   }
-  return out;
+  return out
 }
 
 interface ParsedExclusion {
-  using?: string;
-  elements: { column?: string; expression?: string; operator: string }[];
-  where?: string;
+  using?: string
+  elements: {column?: string; expression?: string; operator: string}[]
+  where?: string
 }
 
 /**
@@ -161,93 +165,111 @@ interface ParsedExclusion {
  * 复杂情形（表达式元素）退化为单元素 expression。
  */
 function parseExclusionDef(def: string): ParsedExclusion {
-  const usingMatch = def.match(/EXCLUDE\s+USING\s+(\w+)\s*\(/i);
-  const using = usingMatch?.[1];
-  const headIdx = def.indexOf('(', usingMatch?.index ?? 0);
+  const usingMatch = def.match(/EXCLUDE\s+USING\s+(\w+)\s*\(/i)
+  const using = usingMatch?.[1]
+  const headIdx = def.indexOf('(', usingMatch?.index ?? 0)
   if (headIdx < 0) {
-    return { using, elements: [{ expression: def, operator: '=' }] };
+    return {using, elements: [{expression: def, operator: '='}]}
   }
-  const { body, end } = extractBalanced(def, headIdx);
-  const tail = def.slice(end + 1);
-  const whereMatch = tail.match(/WHERE\s*\((.*)\)/is);
-  const where = whereMatch?.[1]?.trim();
+  const {body, end} = extractBalanced(def, headIdx)
+  const tail = def.slice(end + 1)
+  const whereMatch = tail.match(/WHERE\s*\((.*)\)/is)
+  const where = whereMatch?.[1]?.trim()
 
-  const elements = splitTopLevel(body, ',').map(part => parseExclusionElement(part.trim()));
-  return { using, elements, where };
+  const elements = splitTopLevel(body, ',').map(part => parseExclusionElement(part.trim()))
+  return {using, elements, where}
 }
 
-function parseExclusionElement(piece: string): { column?: string; expression?: string; operator: string } {
+function parseExclusionElement(piece: string): {
+  column?: string
+  expression?: string
+  operator: string
+} {
   // 从右往左匹配 ` WITH op`
-  const m = piece.match(/^(.*)\sWITH\s+(\S+)\s*$/is);
-  if (!m) return { expression: piece, operator: '=' };
-  const head = m[1].trim();
-  const operator = m[2].trim();
+  const m = piece.match(/^(.*)\sWITH\s+(\S+)\s*$/is)
+  if (!m) return {expression: piece, operator: '='}
+  const head = m[1].trim()
+  const operator = m[2].trim()
   // 简单字段名（可带引号）：identifier 或 "identifier"
-  const ident = head.match(/^"([^"]+)"$|^([a-zA-Z_][a-zA-Z0-9_]*)$/);
+  const ident = head.match(/^"([^"]+)"$|^([a-zA-Z_][a-zA-Z0-9_]*)$/)
   if (ident) {
-    return { column: ident[1] ?? ident[2], operator };
+    return {column: ident[1] ?? ident[2], operator}
   }
-  return { expression: head, operator };
+  return {expression: head, operator}
 }
 
 /** 从给定 `(` 位置开始匹配到对应的 `)`，返回内部子串和结束下标 */
-function extractBalanced(s: string, openIdx: number): { body: string; end: number } {
-  let depth = 0;
+function extractBalanced(s: string, openIdx: number): {body: string; end: number} {
+  let depth = 0
   for (let i = openIdx; i < s.length; i++) {
-    const ch = s[i];
-    if (ch === '(') depth++;
+    const ch = s[i]
+    if (ch === '(') depth++
     else if (ch === ')') {
-      depth--;
-      if (depth === 0) return { body: s.slice(openIdx + 1, i), end: i };
+      depth--
+      if (depth === 0) return {body: s.slice(openIdx + 1, i), end: i}
     }
   }
-  return { body: s.slice(openIdx + 1), end: s.length - 1 };
+  return {body: s.slice(openIdx + 1), end: s.length - 1}
 }
 
 /** 在顶层（不进入括号）上按 sep 切分 */
 function splitTopLevel(s: string, sep: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let buf = '';
+  const out: string[] = []
+  let depth = 0
+  let buf = ''
   for (const ch of s) {
-    if (ch === '(') depth++;
-    if (ch === ')') depth--;
+    if (ch === '(') depth++
+    if (ch === ')') depth--
     if (ch === sep && depth === 0) {
-      out.push(buf);
-      buf = '';
+      out.push(buf)
+      buf = ''
     } else {
-      buf += ch;
+      buf += ch
     }
   }
-  if (buf) out.push(buf);
-  return out;
+  if (buf) out.push(buf)
+  return out
 }
 
 function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function mentionsOtherIdentifiers(expr: string, knownCol: string): boolean {
   const KW = new Set([
-    'AND', 'OR', 'NOT', 'IS', 'NULL', 'TRUE', 'FALSE',
-    'IN', 'BETWEEN', 'LIKE', 'ILIKE', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
-  ]);
-  const idents = expr.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) ?? [];
-  return idents.some(i => i !== knownCol && !KW.has(i.toUpperCase()));
+    'AND',
+    'OR',
+    'NOT',
+    'IS',
+    'NULL',
+    'TRUE',
+    'FALSE',
+    'IN',
+    'BETWEEN',
+    'LIKE',
+    'ILIKE',
+    'CASE',
+    'WHEN',
+    'THEN',
+    'ELSE',
+    'END',
+  ])
+  const idents = expr.match(/[a-zA-Z_][a-zA-Z0-9_]*/g) ?? []
+  return idents.some(i => i !== knownCol && !KW.has(i.toUpperCase()))
 }
 
 async function fetchColumns(pool: Pool, schema: string, table: string): Promise<DbColumn[]> {
   const result = await pool.query<{
-    column_name: string;
-    data_type: string;
-    is_nullable: string;
-    column_default: string | null;
-    is_identity: string;          // 'YES' / 'NO'
-    identity_generation: string | null; // 'ALWAYS' / 'BY DEFAULT'
-    is_primary_key: boolean;
-    is_unique: boolean;
-    comment: string | null;
-    ordinal_position: number;
+    column_name: string
+    data_type: string
+    is_nullable: string
+    column_default: string | null
+    is_identity: string // 'YES' / 'NO'
+    identity_generation: string | null // 'ALWAYS' / 'BY DEFAULT'
+    is_primary_key: boolean
+    is_unique: boolean
+    comment: string | null
+    ordinal_position: number
   }>(
     `SELECT
        c.column_name,
@@ -295,7 +317,7 @@ async function fetchColumns(pool: Pool, schema: string, table: string): Promise<
      WHERE c.table_schema = $1 AND c.table_name = $2
      ORDER BY c.ordinal_position`,
     [schema, table]
-  );
+  )
 
   return result.rows.map(row => ({
     name: row.column_name,
@@ -313,18 +335,22 @@ async function fetchColumns(pool: Pool, schema: string, table: string): Promise<
     isUnique: row.is_unique,
     comment: row.comment,
     ordinalPosition: row.ordinal_position,
-  }));
+  }))
 }
 
-async function fetchForeignKeys(pool: Pool, schema: string, table: string): Promise<DbForeignKey[]> {
+async function fetchForeignKeys(
+  pool: Pool,
+  schema: string,
+  table: string
+): Promise<DbForeignKey[]> {
   const result = await pool.query<{
-    constraint_name: string;
-    column_name: string;
-    ref_table: string;
-    ref_schema: string;
-    ref_column: string;
-    on_delete: string;
-    on_update: string;
+    constraint_name: string
+    column_name: string
+    ref_table: string
+    ref_schema: string
+    ref_column: string
+    on_delete: string
+    on_update: string
   }>(
     `SELECT
        tc.constraint_name,
@@ -344,7 +370,7 @@ async function fetchForeignKeys(pool: Pool, schema: string, table: string): Prom
      WHERE tc.constraint_type = 'FOREIGN KEY'
        AND tc.table_schema = $1 AND tc.table_name = $2`,
     [schema, table]
-  );
+  )
 
   return result.rows.map(row => ({
     constraintName: row.constraint_name,
@@ -354,7 +380,7 @@ async function fetchForeignKeys(pool: Pool, schema: string, table: string): Prom
     referenceColumn: row.ref_column,
     onDelete: row.on_delete,
     onUpdate: row.on_update,
-  }));
+  }))
 }
 
 /**
@@ -363,11 +389,11 @@ async function fetchForeignKeys(pool: Pool, schema: string, table: string): Prom
  */
 async function fetchIndexes(pool: Pool, schema: string, table: string): Promise<DbIndex[]> {
   const result = await pool.query<{
-    name: string;
-    is_unique: boolean;
-    index_type: string;
-    definition: string;
-    predicate: string | null;
+    name: string
+    is_unique: boolean
+    index_type: string
+    definition: string
+    predicate: string | null
   }>(
     `SELECT
        c.relname                                AS name,
@@ -388,10 +414,10 @@ async function fetchIndexes(pool: Pool, schema: string, table: string): Promise<
        )
      ORDER BY c.relname`,
     [schema, table]
-  );
+  )
 
   return result.rows.map(row => {
-    const parsed = parseIndexDef(row.definition);
+    const parsed = parseIndexDef(row.definition)
     return {
       name: row.name,
       isUnique: row.is_unique,
@@ -400,12 +426,12 @@ async function fetchIndexes(pool: Pool, schema: string, table: string): Promise<
       columns: parsed.columns.map(c => c.column ?? '').filter(Boolean),
       columnsDetail: parsed.columns,
       rawDefinition: row.definition,
-    };
-  });
+    }
+  })
 }
 
 interface ParsedIndexDef {
-  columns: DbIndexColumn[];
+  columns: DbIndexColumn[]
 }
 
 /**
@@ -416,51 +442,53 @@ interface ParsedIndexDef {
  * 简单列引用 → column+direction；其他 → expression。
  */
 function parseIndexDef(def: string): ParsedIndexDef {
-  const openIdx = def.indexOf('(', def.search(/USING\s+\w+/i));
-  if (openIdx < 0) return { columns: [] };
-  const { body } = extractBalanced(def, openIdx);
-  const parts = splitTopLevel(body, ',').map(p => p.trim());
-  const columns: DbIndexColumn[] = parts.map(parseIndexElement);
-  return { columns };
+  const openIdx = def.indexOf('(', def.search(/USING\s+\w+/i))
+  if (openIdx < 0) return {columns: []}
+  const {body} = extractBalanced(def, openIdx)
+  const parts = splitTopLevel(body, ',').map(p => p.trim())
+  const columns: DbIndexColumn[] = parts.map(parseIndexElement)
+  return {columns}
 }
 
 function parseIndexElement(raw: string): DbIndexColumn {
-  let work = raw.trim();
+  let work = raw.trim()
   // 提取 DESC/ASC 和 NULLS FIRST/LAST 后缀
-  let direction: 'ASC' | 'DESC' | undefined;
-  let nulls: 'FIRST' | 'LAST' | undefined;
-  const nullsMatch = work.match(/\bNULLS\s+(FIRST|LAST)\s*$/i);
+  let direction: 'ASC' | 'DESC' | undefined
+  let nulls: 'FIRST' | 'LAST' | undefined
+  const nullsMatch = work.match(/\bNULLS\s+(FIRST|LAST)\s*$/i)
   if (nullsMatch) {
-    nulls = nullsMatch[1].toUpperCase() as 'FIRST' | 'LAST';
-    work = work.slice(0, nullsMatch.index).trim();
+    nulls = nullsMatch[1].toUpperCase() as 'FIRST' | 'LAST'
+    work = work.slice(0, nullsMatch.index).trim()
   }
-  const dirMatch = work.match(/\b(ASC|DESC)\s*$/i);
+  const dirMatch = work.match(/\b(ASC|DESC)\s*$/i)
   if (dirMatch) {
-    direction = dirMatch[1].toUpperCase() as 'ASC' | 'DESC';
-    work = work.slice(0, dirMatch.index).trim();
+    direction = dirMatch[1].toUpperCase() as 'ASC' | 'DESC'
+    work = work.slice(0, dirMatch.index).trim()
   }
   // 简单字段：identifier 或 "identifier"
-  const simple = work.match(/^"([^"]+)"$|^([a-zA-Z_][a-zA-Z0-9_]*)$/);
+  const simple = work.match(/^"([^"]+)"$|^([a-zA-Z_][a-zA-Z0-9_]*)$/)
   if (simple) {
-    return { column: simple[1] ?? simple[2], direction, nulls };
+    return {column: simple[1] ?? simple[2], direction, nulls}
   }
   // 简单字段 + opclass：identifier opclass
-  const withOpclass = work.match(/^("([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+([a-zA-Z_][a-zA-Z0-9_]*)$/);
+  const withOpclass = work.match(
+    /^("([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*))\s+([a-zA-Z_][a-zA-Z0-9_]*)$/
+  )
   if (withOpclass) {
     return {
       column: withOpclass[2] ?? withOpclass[3],
       opclass: withOpclass[4],
       direction,
       nulls,
-    };
+    }
   }
   // 其余整体作为表达式
-  return { column: null, expression: work, direction, nulls };
+  return {column: null, expression: work, direction, nulls}
 }
 
 async function fetchEnums(pool: Pool, schemas: string[]): Promise<DbEnum[]> {
-  const schemaPlaceholders = schemas.map((_, i) => `$${i + 1}`).join(', ');
-  const result = await pool.query<{ name: string; schema: string; values: string[] }>(
+  const schemaPlaceholders = schemas.map((_, i) => `$${i + 1}`).join(', ')
+  const result = await pool.query<{name: string; schema: string; values: string[]}>(
     `SELECT
        t.typname as name,
        n.nspname as schema,
@@ -472,11 +500,11 @@ async function fetchEnums(pool: Pool, schemas: string[]): Promise<DbEnum[]> {
      GROUP BY t.typname, n.nspname
      ORDER BY n.nspname, t.typname`,
     schemas
-  );
+  )
 
   return result.rows.map(row => ({
     name: row.name,
     schema: row.schema,
     values: row.values,
-  }));
+  }))
 }

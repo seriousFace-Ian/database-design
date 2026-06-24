@@ -2,6 +2,7 @@
   "name": "database-design",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "workspaces": [
     "packages/frontend",
     "packages/backend"
@@ -11,9 +12,13 @@
     "dev:fe": "pnpm run dev --workspace=packages/frontend",
     "dev:be": "pnpm run dev --workspace=packages/backend",
     "build": "pnpm run build --workspace=packages/frontend",
-    "test": "pnpm run test --workspace=packages/frontend"
+    "test": "pnpm run test --workspace=packages/frontend",
+    "format": "prettier --write packages/frontend packages/backend",
+    "format:check": "prettier --check packages/frontend packages/backend"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "prettier": "^3.8.4",
+    "@ianchoi/prettier-config-standard": "^0.0.1"
   }
 }

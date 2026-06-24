@@ -1,38 +1,41 @@
-import React, { useState } from 'react';
-import { Typography, Dropdown, Modal, Input, Space, theme } from 'antd';
-import type { MenuProps } from 'antd';
+import {useState} from 'react'
+
 import {
-  TableOutlined,
-  EditOutlined,
   DeleteOutlined,
+  EditOutlined,
   MoreOutlined,
   SwapOutlined,
-} from '@ant-design/icons';
-import { useProjectStore } from '@/store/projectStore';
-import { useUiStore } from '@/store/uiStore';
-import type { TableCategory, TableDefinition } from '@/types/schema';
+  TableOutlined,
+} from '@ant-design/icons'
+import type {MenuProps} from 'antd'
+import {Dropdown, Input, Modal, Space, theme, Typography} from 'antd'
+import type React from 'react'
 
-const { Text } = Typography;
+import {useProjectStore} from '@/store/projectStore'
+import {useUiStore} from '@/store/uiStore'
+import type {TableCategory, TableDefinition} from '@/types/schema'
+
+const {Text} = Typography
 
 interface Props {
-  table: TableDefinition;
-  categories: TableCategory[];
+  table: TableDefinition
+  categories: TableCategory[]
 }
 
-const TableListItem: React.FC<Props> = ({ table, categories }) => {
-  const { updateTable, deleteTable, moveTableToCategory } = useProjectStore();
-  const { selectTable } = useUiStore();
-  const { token } = theme.useToken();
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState(table.name);
+const TableListItem: React.FC<Props> = ({table, categories}) => {
+  const {updateTable, deleteTable, moveTableToCategory} = useProjectStore()
+  const {selectTable} = useUiStore()
+  const {token} = theme.useToken()
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState(table.name)
 
   const handleRename = () => {
-    const name = renameValue.trim();
+    const name = renameValue.trim()
     if (name && name !== table.name) {
-      updateTable(table.id, { name });
+      updateTable(table.id, {name})
     }
-    setRenaming(false);
-  };
+    setRenaming(false)
+  }
 
   const handleDelete = () => {
     Modal.confirm({
@@ -40,13 +43,13 @@ const TableListItem: React.FC<Props> = ({ table, categories }) => {
       content: '同时会清理其他表中引用此表的外键关系，此操作不可撤销。',
       okText: '确认删除',
       cancelText: '取消',
-      okButtonProps: { danger: true },
+      okButtonProps: {danger: true},
       onOk: () => {
-        deleteTable(table.id);
-        selectTable(null);
+        deleteTable(table.id)
+        selectTable(null)
       },
-    });
-  };
+    })
+  }
 
   // 「移动到分组」子菜单：列出所有分组 + 「移出分组」
   const moveMenuItems: MenuProps['items'] = [
@@ -54,32 +57,32 @@ const TableListItem: React.FC<Props> = ({ table, categories }) => {
       key: `move-${c.id}`,
       label: c.name,
       disabled: table.categoryId === c.id,
-      onClick: ({ domEvent }: { domEvent: React.MouseEvent | React.KeyboardEvent }) => {
-        domEvent.stopPropagation();
-        moveTableToCategory(table.id, c.id);
+      onClick: ({domEvent}: {domEvent: React.MouseEvent | React.KeyboardEvent}) => {
+        domEvent.stopPropagation()
+        moveTableToCategory(table.id, c.id)
       },
     })),
-    ...(categories.length > 0 ? [{ type: 'divider' as const, key: 'divider' }] : []),
+    ...(categories.length > 0 ? [{type: 'divider' as const, key: 'divider'}] : []),
     {
       key: 'move-uncategorized',
       label: '移出分组（未分类）',
       disabled: !table.categoryId,
-      onClick: ({ domEvent }: { domEvent: React.MouseEvent | React.KeyboardEvent }) => {
-        domEvent.stopPropagation();
-        moveTableToCategory(table.id, null);
+      onClick: ({domEvent}: {domEvent: React.MouseEvent | React.KeyboardEvent}) => {
+        domEvent.stopPropagation()
+        moveTableToCategory(table.id, null)
       },
     },
-  ];
+  ]
 
   const menuItems: MenuProps['items'] = [
     {
       key: 'rename',
       icon: <EditOutlined />,
       label: '重命名',
-      onClick: ({ domEvent }) => {
-        domEvent.stopPropagation();
-        setRenameValue(table.name);
-        setRenaming(true);
+      onClick: ({domEvent}) => {
+        domEvent.stopPropagation()
+        setRenameValue(table.name)
+        setRenaming(true)
       },
     },
     {
@@ -93,12 +96,12 @@ const TableListItem: React.FC<Props> = ({ table, categories }) => {
       icon: <DeleteOutlined />,
       label: '删除',
       danger: true,
-      onClick: ({ domEvent }) => {
-        domEvent.stopPropagation();
-        handleDelete();
+      onClick: ({domEvent}) => {
+        domEvent.stopPropagation()
+        handleDelete()
       },
     },
-  ];
+  ]
 
   return (
     <div
@@ -120,17 +123,17 @@ const TableListItem: React.FC<Props> = ({ table, categories }) => {
 
       {renaming ? (
         <Input
-          size="small"
-          value={renameValue}
           autoFocus
-          onClick={e => e.stopPropagation()}
-          onChange={e => setRenameValue(e.target.value)}
+          size="small"
+          style={{flex: 1}}
+          value={renameValue}
           onBlur={handleRename}
-          onPressEnter={handleRename}
+          onChange={e => setRenameValue(e.target.value)}
+          onClick={e => e.stopPropagation()}
           onKeyDown={e => {
-            if (e.key === 'Escape') setRenaming(false);
+            if (e.key === 'Escape') setRenaming(false)
           }}
-          style={{ flex: 1 }}
+          onPressEnter={handleRename}
         />
       ) : (
         <Text
@@ -145,28 +148,28 @@ const TableListItem: React.FC<Props> = ({ table, categories }) => {
         >
           {table.name}
           {table.fields.length > 0 && (
-            <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
+            <Text style={{fontSize: 11, marginLeft: 4}} type="secondary">
               ({table.fields.length})
             </Text>
           )}
         </Text>
       )}
 
-      <Dropdown trigger={['click']} menu={{ items: menuItems }}>
+      <Dropdown menu={{items: menuItems}} trigger={['click']}>
         <Space
-          onClick={e => e.stopPropagation()}
           style={{
             padding: '2px 4px',
             borderRadius: 4,
             color: token.colorTextSecondary,
             flexShrink: 0,
           }}
+          onClick={e => e.stopPropagation()}
         >
           <MoreOutlined />
         </Space>
       </Dropdown>
     </div>
-  );
-};
+  )
+}
 
-export default TableListItem;
+export default TableListItem

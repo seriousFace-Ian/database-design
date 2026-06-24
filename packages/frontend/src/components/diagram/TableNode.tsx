@@ -1,27 +1,30 @@
-import React, { memo } from 'react';
-import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { KeyOutlined, LinkOutlined, StarOutlined } from '@ant-design/icons';
-import { theme } from 'antd';
-import type { TableFlowNode } from '@/types/flow';
-import { useUiStore } from '@/store/uiStore';
+import {memo} from 'react'
 
-const TableNode: React.FC<NodeProps<TableFlowNode>> = ({ data }) => {
-  const { table, isSelected } = data;
-  const selectTable = useUiStore((s) => s.selectTable);
-  const setActiveView = useUiStore((s) => s.setActiveView);
-  const { token } = theme.useToken();
+import {KeyOutlined, LinkOutlined, StarOutlined} from '@ant-design/icons'
+import {Handle, type NodeProps, Position} from '@xyflow/react'
+import {theme} from 'antd'
+import type React from 'react'
+
+import {useUiStore} from '@/store/uiStore'
+import type {TableFlowNode} from '@/types/flow'
+
+const TableNode: React.FC<NodeProps<TableFlowNode>> = ({data}) => {
+  const {table, isSelected} = data
+  const selectTable = useUiStore(s => s.selectTable)
+  const setActiveView = useUiStore(s => s.setActiveView)
+  const {token} = theme.useToken()
 
   const handleStyle: React.CSSProperties = {
     width: 8,
     height: 8,
     background: token.colorPrimary,
     border: `1px solid ${token.colorBgContainer}`,
-  };
+  }
 
   const handleHeaderDoubleClick = () => {
-    selectTable(table.id);
-    setActiveView('designer');
-  };
+    selectTable(table.id)
+    setActiveView('designer')
+  }
 
   return (
     <div
@@ -38,7 +41,6 @@ const TableNode: React.FC<NodeProps<TableFlowNode>> = ({ data }) => {
       }}
     >
       <div
-        onDoubleClick={handleHeaderDoubleClick}
         style={{
           padding: '6px 10px',
           background: isSelected ? token.colorPrimaryBg : token.colorFillQuaternary,
@@ -50,15 +52,18 @@ const TableNode: React.FC<NodeProps<TableFlowNode>> = ({ data }) => {
           userSelect: 'none',
         }}
         title="双击：跳转到设计器编辑此表"
+        onDoubleClick={handleHeaderDoubleClick}
       >
-        <span style={{ color: token.colorTextSecondary }}>{table.schema}.</span>
+        <span style={{color: token.colorTextSecondary}}>{table.schema}.</span>
         <span>{table.name}</span>
       </div>
 
       {table.fields.length === 0 ? (
-        <div style={{ padding: '8px 10px', color: token.colorTextDisabled, fontSize: 12 }}>(无字段)</div>
+        <div style={{padding: '8px 10px', color: token.colorTextDisabled, fontSize: 12}}>
+          (无字段)
+        </div>
       ) : (
-        table.fields.map((f) => (
+        table.fields.map(f => (
           <div
             key={f.id}
             style={{
@@ -72,30 +77,32 @@ const TableNode: React.FC<NodeProps<TableFlowNode>> = ({ data }) => {
               minHeight: 22,
             }}
           >
-            <Handle type="target" position={Position.Left} id={f.id} style={handleStyle} />
-            <span style={{ width: 14, textAlign: 'center', lineHeight: 1 }}>
+            <Handle id={f.id} position={Position.Left} style={handleStyle} type="target" />
+            <span style={{width: 14, textAlign: 'center', lineHeight: 1}}>
               {f.isPrimaryKey ? (
-                <KeyOutlined style={{ color: token.colorWarning }} title="主键" />
+                <KeyOutlined style={{color: token.colorWarning}} title="主键" />
               ) : f.foreignKey ? (
-                <LinkOutlined style={{ color: token.colorPrimary }} title="外键" />
+                <LinkOutlined style={{color: token.colorPrimary}} title="外键" />
               ) : f.isUnique ? (
-                <StarOutlined style={{ color: token.colorSuccess }} title="唯一" />
+                <StarOutlined style={{color: token.colorSuccess}} title="唯一" />
               ) : null}
             </span>
-            <span style={{ flex: 1, color: f.isPrimaryKey ? token.colorText : token.colorTextSecondary }}>
+            <span
+              style={{flex: 1, color: f.isPrimaryKey ? token.colorText : token.colorTextSecondary}}
+            >
               {f.name}
-              {!f.nullable && <span style={{ color: token.colorError, marginLeft: 4 }}>*</span>}
+              {!f.nullable && <span style={{color: token.colorError, marginLeft: 4}}>*</span>}
             </span>
-            <span style={{ color: token.colorTextTertiary, fontSize: 11 }}>
+            <span style={{color: token.colorTextTertiary, fontSize: 11}}>
               {f.type}
               {f.isArray ? '[]' : ''}
             </span>
-            <Handle type="source" position={Position.Right} id={f.id} style={handleStyle} />
+            <Handle id={f.id} position={Position.Right} style={handleStyle} type="source" />
           </div>
         ))
       )}
     </div>
-  );
-};
+  )
+}
 
-export default memo(TableNode);
+export default memo(TableNode)

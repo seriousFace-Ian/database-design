@@ -1,8 +1,8 @@
-import { Request, Response, NextFunction } from 'express';
+import {Request, Response, NextFunction} from 'express'
 
 export interface AppError extends Error {
-  statusCode?: number;
-  code?: string;
+  statusCode?: number
+  code?: string
 }
 
 export function errorHandler(
@@ -11,10 +11,10 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  const statusCode = err.statusCode ?? 500;
-  const message = err.message ?? 'Internal Server Error';
+  const statusCode = err.statusCode ?? 500
+  const message = err.message ?? 'Internal Server Error'
 
-  console.error(`[ERROR] ${statusCode} - ${message}`, err.stack);
+  console.error(`[ERROR] ${statusCode} - ${message}`, err.stack)
 
   res.status(statusCode).json({
     success: false,
@@ -22,7 +22,7 @@ export function errorHandler(
       code: err.code ?? 'INTERNAL_ERROR',
       message,
     },
-  });
+  })
 }
 
 export function notFoundHandler(req: Request, res: Response): void {
@@ -32,5 +32,5 @@ export function notFoundHandler(req: Request, res: Response): void {
       code: 'NOT_FOUND',
       message: `Route ${req.method} ${req.path} not found`,
     },
-  });
+  })
 }

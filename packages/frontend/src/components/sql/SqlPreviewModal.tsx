@@ -1,50 +1,49 @@
-import React, { useMemo } from 'react';
-import { Modal, Button, Space, message, Empty } from 'antd';
-import { CopyOutlined, DownloadOutlined } from '@ant-design/icons';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useUiStore } from '@/store/uiStore';
-import { useProjectStore } from '@/store/projectStore';
-import { generateProjectDdl } from '@/utils/sqlGenerator';
+import {useMemo} from 'react'
+
+import {CopyOutlined, DownloadOutlined} from '@ant-design/icons'
+import {Button, Empty, message, Modal, Space} from 'antd'
+import type React from 'react'
+import {Prism as SyntaxHighlighter} from 'react-syntax-highlighter'
+import {oneDark} from 'react-syntax-highlighter/dist/esm/styles/prism'
+
+import {useProjectStore} from '@/store/projectStore'
+import {useUiStore} from '@/store/uiStore'
+import {generateProjectDdl} from '@/utils/sqlGenerator'
 
 const SqlPreviewModal: React.FC = () => {
-  const { sqlPreviewOpen, setSqlPreviewOpen } = useUiStore();
-  const { project } = useProjectStore();
+  const {sqlPreviewOpen, setSqlPreviewOpen} = useUiStore()
+  const {project} = useProjectStore()
 
   // 仅在弹窗打开且有项目时生成，避免不必要的计算
   const sql = useMemo(
     () => (sqlPreviewOpen && project ? generateProjectDdl(project) : ''),
     [sqlPreviewOpen, project]
-  );
+  )
 
-  const hasContent = !!project && project.tables.length > 0;
+  const hasContent = !!project && project.tables.length > 0
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(sql).then(() => message.success('已复制到剪贴板'));
-  };
+    navigator.clipboard.writeText(sql).then(() => message.success('已复制到剪贴板'))
+  }
 
   const handleDownload = () => {
-    const blob = new Blob([sql], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${project?.name ?? 'schema'}.sql`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+    const blob = new Blob([sql], {type: 'text/plain'})
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${project?.name ?? 'schema'}.sql`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <Modal
-      title="SQL 预览"
-      open={sqlPreviewOpen}
-      onCancel={() => setSqlPreviewOpen(false)}
-      width={800}
       footer={
         <Space>
-          <Button icon={<CopyOutlined />} onClick={handleCopy} disabled={!hasContent}>
+          <Button disabled={!hasContent} icon={<CopyOutlined />} onClick={handleCopy}>
             复制
           </Button>
-          <Button icon={<DownloadOutlined />} onClick={handleDownload} disabled={!hasContent}>
+          <Button disabled={!hasContent} icon={<DownloadOutlined />} onClick={handleDownload}>
             下载 .sql
           </Button>
           <Button type="primary" onClick={() => setSqlPreviewOpen(false)}>
@@ -52,11 +51,14 @@ const SqlPreviewModal: React.FC = () => {
           </Button>
         </Space>
       }
+      open={sqlPreviewOpen}
+      title="SQL 预览"
+      width={800}
+      onCancel={() => setSqlPreviewOpen(false)}
     >
       {hasContent ? (
         <SyntaxHighlighter
-          language="sql"
-          style={oneDark}
+          wrapLongLines
           customStyle={{
             margin: 0,
             borderRadius: 6,
@@ -64,7 +66,8 @@ const SqlPreviewModal: React.FC = () => {
             fontSize: 13,
             lineHeight: 1.6,
           }}
-          wrapLongLines
+          language="sql"
+          style={oneDark}
         >
           {sql}
         </SyntaxHighlighter>
@@ -72,7 +75,7 @@ const SqlPreviewModal: React.FC = () => {
         <Empty description="还没有可生成 SQL 的表" />
       )}
     </Modal>
-  );
-};
+  )
+}
 
-export default SqlPreviewModal;
+export default SqlPreviewModal

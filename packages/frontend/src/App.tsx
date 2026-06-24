@@ -1,21 +1,24 @@
-import React, { useEffect, useMemo } from 'react';
-import { ConfigProvider, App as AntApp, theme as antdTheme } from 'antd';
-import type { ThemeConfig } from 'antd';
-import zhCN from 'antd/locale/zh_CN';
-import AppLayout from '@/components/layout/AppLayout';
-import { useUiStore } from '@/store/uiStore';
+import {useEffect, useMemo} from 'react'
 
-const LIGHT_BODY_BG = '#ffffff';
-const DARK_BODY_BG = '#1c1f23';
+import type {ThemeConfig} from 'antd'
+import {App as AntApp, ConfigProvider, theme as antdTheme} from 'antd'
+import zhCN from 'antd/locale/zh_CN'
+import type React from 'react'
+
+import AppLayout from '@/components/layout/AppLayout'
+import {useUiStore} from '@/store/uiStore'
+
+const LIGHT_BODY_BG = '#ffffff'
+const DARK_BODY_BG = '#1c1f23'
 
 const App: React.FC = () => {
-  const themeMode = useUiStore((s) => s.themeMode);
-  const isDark = themeMode === 'dark';
+  const themeMode = useUiStore(s => s.themeMode)
+  const isDark = themeMode === 'dark'
 
   useEffect(() => {
-    document.body.style.background = isDark ? DARK_BODY_BG : LIGHT_BODY_BG;
-    document.body.dataset.theme = themeMode;
-  }, [isDark, themeMode]);
+    document.body.style.background = isDark ? DARK_BODY_BG : LIGHT_BODY_BG
+    document.body.dataset.theme = themeMode
+  }, [isDark, themeMode])
 
   const themeConfig = useMemo<ThemeConfig>(() => {
     if (!isDark) {
@@ -25,7 +28,7 @@ const App: React.FC = () => {
           colorPrimary: '#1677ff',
           borderRadius: 6,
         },
-      };
+      }
     }
     // 柔化暗色：避开纯黑底 / 纯白入参的强对比，背景使用一组接近编辑器的中性灰
     return {
@@ -70,8 +73,8 @@ const App: React.FC = () => {
           colorBgSpotlight: '#2f343a',
         },
       },
-    };
-  }, [isDark]);
+    }
+  }, [isDark])
 
   return (
     <ConfigProvider locale={zhCN} theme={themeConfig}>
@@ -79,7 +82,7 @@ const App: React.FC = () => {
         <AppLayout />
       </AntApp>
     </ConfigProvider>
-  );
-};
+  )
+}
 
-export default App;
+export default App

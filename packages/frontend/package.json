@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "@ant-design/icons": "^5.3.7",
@@ -22,15 +26,22 @@
     "react-dom": "^18.3.1",
     "react-syntax-highlighter": "^15.5.0",
     "uuid": "^10.0.0",
-    "zustand": "^4.5.4",
-    "zundo": "^2.2.0"
+    "zundo": "^2.2.0",
+    "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "@ianchoi/eslint-config-react": "^0.0.2",
+    "@ianchoi/eslint-config-standard": "^0.0.2",
+    "@ianchoi/eslint-config-typescript": "^0.0.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^9.39.4",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "jiti": "^2.7.0",
     "typescript": "^5.4.5",
     "vite": "^5.3.1",
     "vitest": "^1.6.0"

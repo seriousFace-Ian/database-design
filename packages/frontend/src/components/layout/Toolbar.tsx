@@ -1,157 +1,179 @@
-import React, { useState } from 'react';
+import {useState} from 'react'
+
 import {
+  ApartmentOutlined,
+  CheckCircleFilled,
+  CloudDownloadOutlined,
+  CloudUploadOutlined,
+  CodeOutlined,
+  DatabaseOutlined,
+  DiffOutlined,
+  DownOutlined,
+  EditOutlined,
+  FileOutlined,
+  FolderOpenOutlined,
+  ImportOutlined,
+  MoonOutlined,
+  PlusOutlined,
+  PoweroffOutlined,
+  RedoOutlined,
+  SaveOutlined,
+  SunOutlined,
+  ThunderboltOutlined,
+  UndoOutlined,
+} from '@ant-design/icons'
+import type {MenuProps} from 'antd'
+import {
+  App,
   Button,
-  Space,
-  Segmented,
-  Tag,
-  Tooltip,
-  Typography,
+  Dropdown,
+  Form,
   Input,
   Modal,
-  Form,
-  App,
-  Dropdown,
+  Segmented,
+  Space,
+  Tag,
   theme,
-} from 'antd';
-import type { MenuProps } from 'antd';
-import {
-  SaveOutlined,
-  FolderOpenOutlined,
-  CodeOutlined,
-  ApartmentOutlined,
-  EditOutlined,
-  DatabaseOutlined,
-  PlusOutlined,
-  UndoOutlined,
-  RedoOutlined,
-  CloudUploadOutlined,
-  CloudDownloadOutlined,
-  PoweroffOutlined,
-  ThunderboltOutlined,
-  ImportOutlined,
-  DiffOutlined,
-  SunOutlined,
-  MoonOutlined,
-  FileOutlined,
-  DownOutlined,
-  CheckCircleFilled,
-} from '@ant-design/icons';
-import { useProjectStore } from '@/store/projectStore';
-import { useUiStore } from '@/store/uiStore';
-import { useConnectionStore } from '@/store/connectionStore';
-import { useSaveProject, useLoadProject } from '@/hooks/useFileSystem';
-import { saveProjectToDb, loadProjectFromDb } from '@/api/project';
-import { inspectSchema } from '@/api/connection';
-import { inspectionToProject } from '@/utils/schemaImporter';
+  Tooltip,
+  Typography,
+} from 'antd'
+import type React from 'react'
 
-const { Text } = Typography;
+import {inspectSchema} from '@/api/connection'
+import {loadProjectFromDb, saveProjectToDb} from '@/api/project'
+import {useLoadProject, useSaveProject} from '@/hooks/useFileSystem'
+import {useConnectionStore} from '@/store/connectionStore'
+import {useProjectStore} from '@/store/projectStore'
+import {useUiStore} from '@/store/uiStore'
+import {inspectionToProject} from '@/utils/schemaImporter'
+
+const {Text} = Typography
 
 const Toolbar: React.FC = () => {
-  const { message, modal } = App.useApp();
-  const { token } = theme.useToken();
-  const { project, isDirty, loadProject: loadProjectIntoStore, markSaved, updateProjectMeta } = useProjectStore();
-  const { activeView, setActiveView, setSqlPreviewOpen, setConnectionPanelOpen, setExecuteDdlOpen, setSqlDiffOpen, themeMode, toggleThemeMode } = useUiStore();
-  const { config: dbConfig, status: dbStatus, disconnect } = useConnectionStore();
+  const {message, modal} = App.useApp()
+  const {token} = theme.useToken()
+  const {
+    project,
+    isDirty,
+    loadProject: loadProjectIntoStore,
+    markSaved,
+    updateProjectMeta,
+  } = useProjectStore()
+  const {
+    activeView,
+    setActiveView,
+    setSqlPreviewOpen,
+    setConnectionPanelOpen,
+    setExecuteDdlOpen,
+    setSqlDiffOpen,
+    themeMode,
+    toggleThemeMode,
+  } = useUiStore()
+  const {config: dbConfig, status: dbStatus, disconnect} = useConnectionStore()
   // zundo temporal 暂时直接用 store 内置
-  const temporalStore = useProjectStore.temporal;
-  const canUndo = temporalStore.getState().pastStates.length > 0;
-  const canRedo = temporalStore.getState().futureStates.length > 0;
+  const temporalStore = useProjectStore.temporal
+  const canUndo = temporalStore.getState().pastStates.length > 0
+  const canRedo = temporalStore.getState().futureStates.length > 0
 
-  const saveProject = useSaveProject();
-  const loadProject = useLoadProject();
-  const { newProject } = useProjectStore();
+  const saveProject = useSaveProject()
+  const loadProject = useLoadProject()
+  const {newProject} = useProjectStore()
 
-  const [dbSaving, setDbSaving] = useState(false);
-  const [dbLoading, setDbLoading] = useState(false);
-  const [dbImporting, setDbImporting] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [renameDraft, setRenameDraft] = useState('');
-  const dbConnected = dbStatus === 'connected';
+  const [dbSaving, setDbSaving] = useState(false)
+  const [dbLoading, setDbLoading] = useState(false)
+  const [dbImporting, setDbImporting] = useState(false)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameDraft, setRenameDraft] = useState('')
+  const dbConnected = dbStatus === 'connected'
 
   // 当存在未保存修改时，先弹确认；否则直接执行
-  const confirmIfDirty = (opts: { title: string; content: string; onOk: () => void | Promise<void> }) => {
+  const confirmIfDirty = (opts: {
+    title: string
+    content: string
+    onOk: () => void | Promise<void>
+  }) => {
     if (!isDirty) {
-      void opts.onOk();
-      return;
+      opts.onOk()
+      return
     }
     modal.confirm({
       title: opts.title,
       content: opts.content,
       okText: '继续（丢弃修改）',
       cancelText: '取消',
-      okButtonProps: { danger: true },
+      okButtonProps: {danger: true},
       onOk: opts.onOk,
-    });
-  };
+    })
+  }
 
   const openRename = () => {
-    if (!project) return;
-    setRenameDraft(project.name);
-    setRenameOpen(true);
-  };
+    if (!project) return
+    setRenameDraft(project.name)
+    setRenameOpen(true)
+  }
 
   const submitRename = () => {
-    const next = renameDraft.trim();
+    const next = renameDraft.trim()
     if (!next) {
-      message.warning('项目名不能为空');
-      return;
+      message.warning('项目名不能为空')
+      return
     }
     if (project && next !== project.name) {
-      updateProjectMeta({ name: next });
+      updateProjectMeta({name: next})
     }
-    setRenameOpen(false);
-  };
+    setRenameOpen(false)
+  }
 
   const handleNew = () => {
     confirmIfDirty({
       title: '当前项目有未保存修改',
       content: '新建项目将替换当前内存中的设计，未保存的修改会丢失。',
       onOk: () => newProject('新建项目'),
-    });
-  };
+    })
+  }
 
   const handleOpenFile = () => {
     confirmIfDirty({
       title: '当前项目有未保存修改',
       content: '打开本地文件将替换当前内存中的设计，未保存的修改会丢失。',
       onOk: loadProject,
-    });
-  };
+    })
+  }
 
   const handleSaveToDb = async () => {
-    if (!project) return;
-    setDbSaving(true);
+    if (!project) return
+    setDbSaving(true)
     try {
-      const res = await saveProjectToDb(dbConfig, project);
+      const res = await saveProjectToDb(dbConfig, project)
       if (res.success) {
-        markSaved();
-        message.success(`已保存到数据库 ${dbConfig.database}`);
+        markSaved()
+        message.success(`已保存到数据库 ${dbConfig.database}`)
       }
     } finally {
-      setDbSaving(false);
+      setDbSaving(false)
     }
-  };
+  }
 
   const handleLoadFromDb = () => {
     confirmIfDirty({
       title: '当前项目有未保存修改',
       content: '从数据库读取设计将替换当前内存中的设计，未保存的修改会丢失。',
       onOk: async () => {
-        setDbLoading(true);
+        setDbLoading(true)
         try {
-          const res = await loadProjectFromDb(dbConfig);
+          const res = await loadProjectFromDb(dbConfig)
           if (res.found && res.project) {
-            loadProjectIntoStore(res.project);
-            message.success('已从数据库加载设计');
+            loadProjectIntoStore(res.project)
+            message.success('已从数据库加载设计')
           } else {
-            message.info(`数据库 ${dbConfig.database} 中暂无设计配置`);
+            message.info(`数据库 ${dbConfig.database} 中暂无设计配置`)
           }
         } finally {
-          setDbLoading(false);
+          setDbLoading(false)
         }
       },
-    });
-  };
+    })
+  }
 
   const handleImportFromDb = () => {
     modal.confirm({
@@ -162,22 +184,24 @@ const Toolbar: React.FC = () => {
       okText: '导入并覆盖',
       cancelText: '取消',
       onOk: async () => {
-        setDbImporting(true);
+        setDbImporting(true)
         try {
-          const res = await inspectSchema(dbConfig);
+          const res = await inspectSchema(dbConfig)
           if (res.success) {
-            const imported = inspectionToProject(res.data, dbConfig.database || '导入的数据库');
-            loadProjectIntoStore(imported);
-            message.success(`已导入 ${res.data.tables.length} 张表、${res.data.enums.length} 个 ENUM`);
+            const imported = inspectionToProject(res.data, dbConfig.database || '导入的数据库')
+            loadProjectIntoStore(imported)
+            message.success(
+              `已导入 ${res.data.tables.length} 张表、${res.data.enums.length} 个 ENUM`
+            )
           }
         } catch (e) {
-          message.error(e instanceof Error ? e.message : '导入失败');
+          message.error(e instanceof Error ? e.message : '导入失败')
         } finally {
-          setDbImporting(false);
+          setDbImporting(false)
         }
       },
-    });
-  };
+    })
+  }
 
   const handleDisconnect = () => {
     modal.confirm({
@@ -187,15 +211,15 @@ const Toolbar: React.FC = () => {
         : '将断开数据库连接并刷新页面，清空当前内存状态。',
       okText: '断开并刷新',
       cancelText: '取消',
-      okButtonProps: { danger: true },
+      okButtonProps: {danger: true},
       onOk: () => {
-        disconnect();
+        disconnect()
         // 用户已显式确认放弃未保存修改，跳过 beforeunload 的二次拦截
-        markSaved();
-        window.location.reload();
+        markSaved()
+        window.location.reload()
       },
-    });
-  };
+    })
+  }
 
   return (
     <div
@@ -212,45 +236,43 @@ const Toolbar: React.FC = () => {
     >
       {/* 左：项目名 */}
       <Space size={8}>
-        <DatabaseOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+        <DatabaseOutlined style={{fontSize: 18, color: '#1677ff'}} />
         {project ? (
-          <Tooltip title="点击修改项目名" mouseEnterDelay={0.4}>
-            <Text
-              strong
-              style={{ fontSize: 15, cursor: 'pointer' }}
-              onClick={openRename}
-            >
+          <Tooltip mouseEnterDelay={0.4} title="点击修改项目名">
+            <Text strong style={{fontSize: 15, cursor: 'pointer'}} onClick={openRename}>
               {project.name}
             </Text>
           </Tooltip>
         ) : (
-          <Text strong style={{ fontSize: 15 }}>DB Design</Text>
+          <Text strong style={{fontSize: 15}}>
+            DB Design
+          </Text>
         )}
         {isDirty && (
-          <Tag color="orange" style={{ marginLeft: 4 }}>
+          <Tag color="orange" style={{marginLeft: 4}}>
             未保存
           </Tag>
         )}
       </Space>
       <Modal
-        title="修改项目名"
-        open={renameOpen}
-        onOk={submitRename}
-        onCancel={() => setRenameOpen(false)}
-        okText="确定"
-        cancelText="取消"
         destroyOnClose
+        cancelText="取消"
+        okText="确定"
+        open={renameOpen}
+        title="修改项目名"
         width={420}
+        onCancel={() => setRenameOpen(false)}
+        onOk={submitRename}
       >
         <Form layout="vertical" onFinish={submitRename}>
-          <Form.Item label="项目名" style={{ marginBottom: 0 }}>
+          <Form.Item label="项目名" style={{marginBottom: 0}}>
             <Input
               autoFocus
-              value={renameDraft}
-              maxLength={80}
               showCount
+              maxLength={80}
               placeholder="请输入项目名"
-              onChange={(e) => setRenameDraft(e.target.value)}
+              value={renameDraft}
+              onChange={e => setRenameDraft(e.target.value)}
               onPressEnter={submitRename}
             />
           </Form.Item>
@@ -259,29 +281,45 @@ const Toolbar: React.FC = () => {
 
       {/* 中：视图切换 */}
       <Segmented
-        value={activeView}
-        onChange={(v) => setActiveView(v as 'designer' | 'diagram')}
         options={[
-          { label: <Space><EditOutlined />设计器</Space>, value: 'designer' },
-          { label: <Space><ApartmentOutlined />关系图</Space>, value: 'diagram' },
+          {
+            label: (
+              <Space>
+                <EditOutlined />
+                设计器
+              </Space>
+            ),
+            value: 'designer',
+          },
+          {
+            label: (
+              <Space>
+                <ApartmentOutlined />
+                关系图
+              </Space>
+            ),
+            value: 'diagram',
+          },
         ]}
+        value={activeView}
+        onChange={v => setActiveView(v as 'designer' | 'diagram')}
       />
 
       {/* 右：操作按钮 */}
       <Space size={4}>
         <Tooltip title="撤销">
           <Button
+            disabled={!canUndo}
             icon={<UndoOutlined />}
             size="small"
-            disabled={!canUndo}
             onClick={() => temporalStore.getState().undo()}
           />
         </Tooltip>
         <Tooltip title="重做">
           <Button
+            disabled={!canRedo}
             icon={<RedoOutlined />}
             size="small"
-            disabled={!canRedo}
             onClick={() => temporalStore.getState().redo()}
           />
         </Tooltip>
@@ -293,7 +331,6 @@ const Toolbar: React.FC = () => {
           />
         </Tooltip>
         <Dropdown
-          trigger={['hover']}
           menu={{
             items: [
               {
@@ -317,46 +354,46 @@ const Toolbar: React.FC = () => {
               },
             ] as MenuProps['items'],
           }}
+          trigger={['hover']}
         >
-          <Button
-            icon={<FileOutlined />}
-            size="small"
-            type={isDirty ? 'primary' : 'default'}
-          >
-            文件 <DownOutlined style={{ fontSize: 10 }} />
+          <Button icon={<FileOutlined />} size="small" type={isDirty ? 'primary' : 'default'}>
+            文件 <DownOutlined style={{fontSize: 10}} />
           </Button>
         </Dropdown>
         <Button
+          disabled={!project}
           icon={<CodeOutlined />}
           size="small"
           onClick={() => setSqlPreviewOpen(true)}
-          disabled={!project}
         >
           SQL
         </Button>
         <Tooltip title={dbConnected ? '将生成的 DDL 执行到所连数据库' : '请先在「连接」中测试通过'}>
           <Button
+            disabled={!project || !dbConnected}
             icon={<ThunderboltOutlined />}
             size="small"
             onClick={() => setExecuteDdlOpen(true)}
-            disabled={!project || !dbConnected}
           >
             执行
           </Button>
         </Tooltip>
-        <Tooltip title={dbConnected ? '对比当前设计与数据库现状，生成 ALTER 语句' : '请先在「连接」中测试通过'}>
+        <Tooltip
+          title={
+            dbConnected ? '对比当前设计与数据库现状，生成 ALTER 语句' : '请先在「连接」中测试通过'
+          }
+        >
           <Button
+            disabled={!project || !dbConnected}
             icon={<DiffOutlined />}
             size="small"
             onClick={() => setSqlDiffOpen(true)}
-            disabled={!project || !dbConnected}
           >
             对比
           </Button>
         </Tooltip>
         {dbConnected ? (
           <Dropdown
-            trigger={['hover']}
             menu={{
               items: [
                 {
@@ -367,11 +404,11 @@ const Toolbar: React.FC = () => {
                 },
                 {
                   key: 'service',
-                  icon: <CheckCircleFilled style={{ color: token.colorSuccess }} />,
+                  icon: <CheckCircleFilled style={{color: token.colorSuccess}} />,
                   label: (
                     <Tooltip
-                      title={`${dbConfig.username}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`}
                       placement="left"
+                      title={`${dbConfig.username}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`}
                     >
                       <span>{dbConfig.database || '已连接'}</span>
                     </Tooltip>
@@ -387,16 +424,25 @@ const Toolbar: React.FC = () => {
                 },
               ] as MenuProps['items'],
             }}
+            trigger={['hover']}
           >
             <Tooltip
-              title={`${dbConfig.username}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`}
               mouseEnterDelay={0.4}
+              title={`${dbConfig.username}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`}
             >
               <Button icon={<DatabaseOutlined />} size="small">
-                <span style={{ maxWidth: 140, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}>
+                <span
+                  style={{
+                    maxWidth: 140,
+                    display: 'inline-block',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    verticalAlign: 'bottom',
+                  }}
+                >
                   {dbConfig.database || '已连接'}
                 </span>
-                <DownOutlined style={{ fontSize: 10, marginLeft: 4 }} />
+                <DownOutlined style={{fontSize: 10, marginLeft: 4}} />
               </Button>
             </Tooltip>
           </Dropdown>
@@ -411,39 +457,34 @@ const Toolbar: React.FC = () => {
         )}
         <Tooltip title={dbConnected ? '将当前设计保存到所连数据库' : '请先在「连接」中测试通过'}>
           <Button
-            icon={<CloudUploadOutlined />}
-            size="small"
-            loading={dbSaving}
-            onClick={handleSaveToDb}
             disabled={!dbConnected || !project}
+            icon={<CloudUploadOutlined />}
+            loading={dbSaving}
+            size="small"
+            onClick={handleSaveToDb}
           >
             存库
           </Button>
         </Tooltip>
         <Tooltip title={dbConnected ? '从所连数据库读取已保存的设计' : '请先在「连接」中测试通过'}>
           <Button
-            icon={<CloudDownloadOutlined />}
-            size="small"
-            loading={dbLoading}
-            onClick={handleLoadFromDb}
             disabled={!dbConnected}
+            icon={<CloudDownloadOutlined />}
+            loading={dbLoading}
+            size="small"
+            onClick={handleLoadFromDb}
           >
             读库
           </Button>
         </Tooltip>
         {dbConnected && (
           <Tooltip title="断开连接并刷新全局">
-            <Button
-              icon={<PoweroffOutlined />}
-              size="small"
-              danger
-              onClick={handleDisconnect}
-            />
+            <Button danger icon={<PoweroffOutlined />} size="small" onClick={handleDisconnect} />
           </Tooltip>
         )}
       </Space>
     </div>
-  );
-};
+  )
+}
 
-export default Toolbar;
+export default Toolbar

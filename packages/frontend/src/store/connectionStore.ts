@@ -1,19 +1,20 @@
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import type { DbConnectionConfig } from '@/types/api';
+import {create} from 'zustand'
+import {createJSONStorage, persist} from 'zustand/middleware'
 
-export type ConnectionStatus = 'idle' | 'testing' | 'connected' | 'error';
+import type {DbConnectionConfig} from '@/types/api'
+
+export type ConnectionStatus = 'idle' | 'testing' | 'connected' | 'error'
 
 interface ConnectionState {
-  config: DbConnectionConfig;
-  status: ConnectionStatus;
-  pgVersion: string | null;
-  errorMessage: string | null;
+  config: DbConnectionConfig
+  status: ConnectionStatus
+  pgVersion: string | null
+  errorMessage: string | null
 
-  setConfig: (config: Partial<DbConnectionConfig>) => void;
-  setStatus: (status: ConnectionStatus, meta?: { version?: string; error?: string }) => void;
-  disconnect: () => void;
-  reset: () => void;
+  setConfig: (config: Partial<DbConnectionConfig>) => void
+  setStatus: (status: ConnectionStatus, meta?: {version?: string; error?: string}) => void
+  disconnect: () => void
+  reset: () => void
 }
 
 const DEFAULT_CONFIG: DbConnectionConfig = {
@@ -23,22 +24,21 @@ const DEFAULT_CONFIG: DbConnectionConfig = {
   username: '',
   password: '',
   ssl: false,
-};
+}
 
 const cleared = () => ({
-  config: { ...DEFAULT_CONFIG },
+  config: {...DEFAULT_CONFIG},
   status: 'idle' as ConnectionStatus,
   pgVersion: null,
   errorMessage: null,
-});
+})
 
 export const useConnectionStore = create<ConnectionState>()(
   persist(
-    (set) => ({
+    set => ({
       ...cleared(),
 
-      setConfig: (partial) =>
-        set((s) => ({ config: { ...s.config, ...partial } })),
+      setConfig: partial => set(s => ({config: {...s.config, ...partial}})),
 
       setStatus: (status, meta) =>
         set({
@@ -55,11 +55,14 @@ export const useConnectionStore = create<ConnectionState>()(
       name: 'dbdesign-connection',
       storage: createJSONStorage(() => sessionStorage),
       // 仅持久化“已连接”态；testing/error 等瞬时态刷新后归零
-      partialize: (state) => ({
+      partialize: state => ({
         config: state.config,
-        status: state.status === 'connected' ? ('connected' as ConnectionStatus) : ('idle' as ConnectionStatus),
+        status:
+          state.status === 'connected'
+            ? ('connected' as ConnectionStatus)
+            : ('idle' as ConnectionStatus),
         pgVersion: state.status === 'connected' ? state.pgVersion : null,
       }),
     }
   )
-);
+)
